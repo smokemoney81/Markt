@@ -1,0 +1,24 @@
+{
+  "name": "Markt Dashboard",
+  "short_name": "Markt",
+  "description": "Dashboard zur Verwaltung von Anzeigen, Kontakten, Terminen, Finanzen und Medien.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0b14",
+  "theme_color": "#0f0b14",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
