@@ -15,10 +15,10 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-const STATUS: { value: AdStatus; label: string; tone: "green" | "amber" | "gray" }[] =
+const STATUS: { value: AdStatus; label: string; tone: "green" | "yellow" | "gray" }[] =
   [
     { value: "aktiv", label: "Aktiv", tone: "green" },
-    { value: "pausiert", label: "Pausiert", tone: "amber" },
+    { value: "pausiert", label: "Pausiert", tone: "yellow" },
     { value: "abgelaufen", label: "Abgelaufen", tone: "gray" },
   ];
 
@@ -159,7 +159,7 @@ export default function AnzeigenPage() {
                 <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border pt-3">
                   <span
                     className={`text-sm ${
-                      due.overdue ? "text-amber-300" : "text-gray-400"
+                      due.overdue ? "text-yellow-300" : "text-gray-400"
                     }`}
                   >
                     {due.overdue

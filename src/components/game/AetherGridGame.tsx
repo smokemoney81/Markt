@@ -108,17 +108,17 @@ export default function AetherGridGame() {
       </div>
 
       {/* Level / Prestige-Leiste */}
-      <div className="mx-auto mb-5 flex max-w-md items-center justify-between gap-2 rounded-2xl border border-[var(--ag-purple)] bg-[var(--ag-panel)] px-4 py-2.5 text-sm">
+      <div className="mx-auto mb-5 flex max-w-md items-center justify-between gap-2 rounded-2xl border border-[var(--ag-blue)] bg-[var(--ag-panel)] px-4 py-2.5 text-sm">
         <span>
           <span className="text-gray-400">Grid-Level </span>
-          <span className="font-bold text-[var(--ag-purple)]">
+          <span className="font-bold text-[var(--ag-blue)]">
             {state.level}
           </span>
           <span className="text-gray-500"> · ×{raidMult.toFixed(2)} Beute</span>
         </span>
         <span className="text-right">
           <span className="text-gray-400">Kerne </span>
-          <span className="font-bold text-[var(--ag-purple)]">
+          <span className="font-bold text-[var(--ag-blue)]">
             {state.prestige}
           </span>
         </span>
@@ -220,7 +220,7 @@ export default function AetherGridGame() {
         </p>
         <NeonButton
           className="w-full"
-          purple
+          blue
           disabled={!canPrestige(state)}
           onClick={() => run(prestige)}
         >
@@ -257,7 +257,7 @@ export default function AetherGridGame() {
       <style jsx global>{`
         .aether-grid {
           --ag-neon: #00f2ff;
-          --ag-purple: #9d00ff;
+          --ag-blue: #4f8bff;
           --ag-danger: #ff0055;
           --ag-panel: rgba(20, 30, 45, 0.9);
         }
@@ -323,20 +323,20 @@ function NeonButton({
   onClick,
   className = "",
   danger = false,
-  purple = false,
+  blue = false,
   disabled = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   className?: string;
   danger?: boolean;
-  purple?: boolean;
+  blue?: boolean;
   disabled?: boolean;
 }) {
   const color = danger
     ? "var(--ag-danger)"
-    : purple
-      ? "var(--ag-purple)"
+    : blue
+      ? "var(--ag-blue)"
       : "var(--ag-neon)";
   return (
     <button

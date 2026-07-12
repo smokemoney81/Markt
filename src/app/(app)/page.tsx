@@ -85,15 +85,15 @@ export default function DashboardPage() {
       <div className="space-y-4 px-4">
         {/* Umsatz-Karte */}
         <div className="card bg-gradient-to-br from-brand-dark to-surface-card">
-          <div className="flex items-center gap-2 text-sm text-pink-100">
+          <div className="flex items-center gap-2 text-sm text-cyan-100">
             <TrendingUp size={16} /> Diesen Monat
           </div>
           <div className="mt-1 text-3xl font-extrabold">
             {euro(income - expense)}
           </div>
           <div className="mt-1 flex gap-4 text-sm">
-            <span className="text-emerald-300">+ {euro(income)} Einnahmen</span>
-            <span className="text-rose-300">− {euro(expense)} Ausgaben</span>
+            <span className="text-green-300">+ {euro(income)} Einnahmen</span>
+            <span className="text-red-300">− {euro(expense)} Ausgaben</span>
           </div>
         </div>
 
@@ -101,18 +101,18 @@ export default function DashboardPage() {
         {dueAds.length > 0 && (
           <Link
             href="/anzeigen"
-            className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"
+            className="flex items-center gap-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4"
           >
-            <AlertTriangle className="text-amber-300" size={22} />
+            <AlertTriangle className="text-yellow-300" size={22} />
             <div className="flex-1">
-              <p className="font-semibold text-amber-200">
+              <p className="font-semibold text-yellow-200">
                 {dueAds.length} Anzeige{dueAds.length > 1 ? "n" : ""} fällig
               </p>
-              <p className="text-sm text-amber-200/70">
+              <p className="text-sm text-yellow-200/70">
                 Jetzt „nach oben schieben"
               </p>
             </div>
-            <ChevronRight className="text-amber-300" size={20} />
+            <ChevronRight className="text-yellow-300" size={20} />
           </Link>
         )}
 

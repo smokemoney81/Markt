@@ -116,23 +116,23 @@ export default function FinanzenPage() {
 
         {/* Übersicht */}
         <div className="card bg-gradient-to-br from-brand-dark to-surface-card">
-          <p className="text-sm text-pink-100">Gewinn</p>
+          <p className="text-sm text-cyan-100">Gewinn</p>
           <p className="text-3xl font-extrabold">{euro(income - expense)}</p>
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-xl bg-black/20 p-3">
-              <p className="flex items-center gap-1 text-emerald-300">
+              <p className="flex items-center gap-1 text-green-300">
                 <ArrowDownLeft size={14} /> Einnahmen
               </p>
               <p className="text-lg font-bold">{euro(income)}</p>
             </div>
             <div className="rounded-xl bg-black/20 p-3">
-              <p className="flex items-center gap-1 text-rose-300">
+              <p className="flex items-center gap-1 text-red-300">
                 <ArrowUpRight size={14} /> Ausgaben
               </p>
               <p className="text-lg font-bold">{euro(expense)}</p>
             </div>
           </div>
-          <p className="mt-2 text-xs text-pink-100/60">
+          <p className="mt-2 text-xs text-cyan-100/60">
             Tipp: für die Steuererklärung relevant – Einnahmen & Ausgaben sauber
             erfassen.
           </p>
@@ -156,8 +156,8 @@ export default function FinanzenPage() {
                 <div
                   className={`flex h-9 w-9 items-center justify-center rounded-xl ${
                     inc
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-rose-500/15 text-rose-300"
+                      ? "bg-green-500/15 text-green-300"
+                      : "bg-red-500/15 text-red-300"
                   }`}
                 >
                   {inc ? (
@@ -177,7 +177,7 @@ export default function FinanzenPage() {
                 </div>
                 <span
                   className={`font-bold ${
-                    inc ? "text-emerald-300" : "text-rose-300"
+                    inc ? "text-green-300" : "text-red-300"
                   }`}
                 >
                   {inc ? "+" : "−"} {euro(Number(t.amount))}
@@ -212,8 +212,8 @@ export default function FinanzenPage() {
                 className={`btn ${
                   form.type === tp
                     ? tp === "einnahme"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-rose-600 text-white"
+                      ? "bg-green-600 text-white"
+                      : "bg-red-600 text-white"
                     : "btn-ghost"
                 }`}
               >

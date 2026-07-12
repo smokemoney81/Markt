@@ -20,10 +20,10 @@ import {
 const STATUS: {
   value: AppointmentStatus;
   label: string;
-  tone: "blue" | "green" | "gray" | "red" | "amber";
+  tone: "blue" | "green" | "gray" | "red" | "yellow";
 }[] = [
   { value: "geplant", label: "Geplant", tone: "blue" },
-  { value: "bestaetigt", label: "Bestätigt", tone: "amber" },
+  { value: "bestaetigt", label: "Bestätigt", tone: "yellow" },
   { value: "erledigt", label: "Erledigt", tone: "green" },
   { value: "abgesagt", label: "Abgesagt", tone: "gray" },
   { value: "no_show", label: "No-Show", tone: "red" },
@@ -365,7 +365,7 @@ function ApptCard({
               {euro(a.price)}
             </span>
             {a.deposit_paid && (
-              <span className="inline-flex items-center gap-1 text-xs text-emerald-300">
+              <span className="inline-flex items-center gap-1 text-xs text-green-300">
                 <BadgeCheck size={13} /> Anzahlung
               </span>
             )}
