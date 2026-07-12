@@ -24,7 +24,7 @@ export type SpinOutcome =
   | { kind: "shield" }
   | { kind: "energy"; spins: number }
   | { kind: "jackpot"; coins: number }
-  | { kind: "coins"; coins: number }
+  | { kind: "coins"; coins: number; count: number }
   | { kind: "nothing" };
 
 export type ItemState = "none" | "built" | "damaged";
@@ -380,9 +380,11 @@ export function rollOutcome(villageIndex: number, bet: number): SpinOutcome {
     case "jackpot":
       return { kind: "jackpot", coins: 20_000 * scale * bet };
     case "coins": {
-      // 1–3 Münzsymbole auf der Linie, jedes zahlt einzeln
+      // 1–3 Münzsymbole auf der Linie, jedes zahlt einzeln.
+      // `count` wird mitgegeben, damit die Walzen-Anzeige exakt zur
+      // Auszahlung passt (sonst würfelt die UI eine eigene Anzahl).
       const coinsShown = 1 + randInt(3);
-      return { kind: "coins", coins: coinsShown * 800 * scale * bet };
+      return { kind: "coins", coins: coinsShown * 800 * scale * bet, count: coinsShown };
     }
     default:
       return { kind: "nothing" };
@@ -405,7 +407,8 @@ export function reelsForOutcome(outcome: SpinOutcome): SlotSymbol[] {
     case "jackpot":
       return tripleOf("bag");
     case "coins":
-      return makeNonTriple(coinReels(others));
+      // Genau so viele Münzen zeigen, wie ausgezahlt werden (inkl. Dreier).
+      return coinReels(outcome.count);
     default: {
       // keine Münzen, kein Dreier
       const pool = others.filter((s) => s !== "coin");
@@ -414,11 +417,11 @@ export function reelsForOutcome(outcome: SpinOutcome): SlotSymbol[] {
   }
 }
 
-function coinReels(others: SlotSymbol[]): SlotSymbol[] {
-  // 1–3 Münzsymbole, Rest zufällige Nicht-Münz-Symbole
-  const n = 1 + randInt(3);
+function coinReels(count: number): SlotSymbol[] {
+  // Genau `count` Münzsymbole (1–3), Rest zufällige Nicht-Münz-Symbole.
+  const n = Math.min(3, Math.max(1, count));
+  const nonCoin: SlotSymbol[] = ["bag", "energy", "hammer", "pig", "shield"];
   const reels: SlotSymbol[] = [];
-  const nonCoin = others.filter((s) => s !== "coin");
   for (let i = 0; i < 3; i++) reels.push(i < n ? "coin" : pick(nonCoin));
   return shuffle(reels);
 }
