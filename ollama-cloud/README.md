@@ -107,6 +107,45 @@ export OPENAI_API_KEY="$(gcloud auth print-identity-token)"   # bei privatem Die
 > `ALLOW_UNAUTH=true` setzen — aber nur mit Bedacht, ein offener LLM-Endpunkt
 > kann teuer werden.
 
+## Mit Claude Code / der Claude-CLI verbinden
+
+Willst du **Claude Code** (oder die `claude`-CLI) mit deinem selbst-gehosteten
+Modell betreiben? Claude Code spricht die **Anthropic-API** (`/v1/messages`),
+Ollama die **OpenAI-API** (`/v1/chat/completions`). Der Ordner
+[`client/`](client) enthält dafür einen kleinen **Übersetzungs-Proxy** (nur
+Python-Standardbibliothek) und einen Launcher:
+
+```bash
+cd ollama-cloud/client
+./connect.sh          # löst den Cloud-Endpunkt auf, startet den Proxy und ruft `claude`
+```
+
+`connect.sh` liest `../.env` (URL/Modell/Auth), startet
+`anthropic_proxy.py` lokal und launcht `claude` mit den passenden Variablen
+(`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`). Nur die Umgebung ausgeben,
+ohne zu starten:
+
+```bash
+./connect.sh --print-env
+```
+
+Gegen einen beliebigen Endpunkt (statt Auto-Auflösung über Cloud Run):
+
+```bash
+OLLAMA_URL=https://ollama-xxxx.a.run.app OLLAMA_MODEL=llama3.2:3b ./connect.sh
+```
+
+> **Was funktioniert:** normaler Chat inkl. Streaming. **Grenzen:** Der Proxy
+> überträgt Text, aber **kein Tool-Calling** im Anthropic-Format — Claude Codes
+> werkzeuglastige Abläufe (Datei-Edits, Bash) brauchen ein Modell, das
+> Tool-Use beherrscht, und laufen mit kleinen lokalen Modellen nur
+> eingeschränkt. Für reine Chat-/Text-Nutzung reicht es. Wer volle
+> OpenAI-/Anthropic-Kompatibilität inkl. Tools braucht, kann alternativ einen
+> ausgereiften Proxy wie **LiteLLM** vor denselben Endpunkt setzen.
+
+Ohne Umweg über Claude Code lässt sich der Endpunkt direkt als
+**OpenAI-Backend** nutzen — siehe Abschnitt „API benutzen" oben.
+
 ## Konfiguration (Übersicht)
 
 | Variable | Standard | Beschreibung |
