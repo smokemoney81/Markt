@@ -58,11 +58,16 @@ src/
   components/
     game/CoinMasterGame.tsx   # Spiel-UI (Client-Component)
     BottomNav.tsx, PageHeader.tsx, ui.tsx, ...
+    api/spiel/        # serverautoritative Spiel-Routen (spin/build/chest/daily/bet/reset/state)
   lib/
-    supabase/         # client.ts, server.ts, middleware.ts (SSR-Clients)
-    game/coinmaster.ts        # Spiel-Logik & Balancing (pure functions)
+    supabase/         # client.ts, server.ts, service.ts, middleware.ts (SSR-Clients)
+    game/
+      coinmaster.ts   # Spiel-Logik & Balancing (pure functions, single source of truth)
+      server.ts       # serverseitige Anwendung + Persistenz derselben Logik
+      api.ts          # Client-Anbindung an die Spiel-Routen
     types.ts, format.ts, useTable.ts
-supabase/migrations/0001_init.sql   # Schema + RLS + Storage-Bucket
+supabase/migrations/0001_init.sql   # Dashboard-Schema + RLS + Storage-Bucket
+supabase/migrations/0002_game.sql   # Spiel-Ökonomie (game_state, game_spin_log)
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool
@@ -82,11 +87,30 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
 
 - **Balancing & Regeln:** zentral in `src/lib/game/coinmaster.ts`
   (`OUTCOME_WEIGHTS`, `itemCost`, `chestCost`, Regeneration, Tagesbonus, Karten).
-  Änderungen an der Ökonomie **immer hier**, nicht in der UI.
-- **UI/State:** `src/components/game/CoinMasterGame.tsx` (Client-Component),
-  Persistenz nur `localStorage`.
-- Logik ist als **pure functions** gehalten (gut testbar/anpassbar). Bei
-  Balancing-Änderungen kurz die Auswirkung auf die Coin-Kurve mitdenken.
+  Änderungen an der Ökonomie **immer hier**, nicht in der UI und nicht dupliziert
+  im Server-Code – `server.ts` nutzt genau diese pure functions.
+- **UI:** `src/components/game/CoinMasterGame.tsx` (Client-Component). Aktuell
+  läuft die UI noch gegen `localStorage` (`coinmaster_save_v1`); das Verdrahten
+  auf die Server-Routen (`src/lib/game/api.ts`) ist der nächste Schritt.
+
+### Serverautoritative Ökonomie (F2P-Fundament)
+
+- **Warum:** Ein reiner localStorage-Spielstand ist trivial manipulierbar →
+  keine Basis für Monetarisierung. Deshalb liegt der Spielstand serverseitig.
+- **Wo:** Tabellen `game_state` / `game_spin_log` (Migration `0002_game.sql`).
+  RLS erlaubt Spielern **nur SELECT** der eigenen Zeile – **keine** insert/
+  update/delete-Policies. Alle Mutationen laufen über die Route-Handler unter
+  `src/app/api/spiel/*` mit dem **Service-Role-Key** (`SUPABASE_SERVICE_ROLE_KEY`,
+  serverseitig, geheim), der RLS autoritativ umgeht.
+- **RNG & Coin-Mathematik** passieren serverseitig in `server.ts` (`performSpin`
+  etc.). Der Nutzer wird aus der Session bestimmt, nie aus dem Request-Body.
+- **Kampf (attack/raid):** wird beim Spin autoritativ vorgewürfelt und sofort
+  gutgeschrieben; das Minispiel im Client ist dann nur noch Enthüllungs-Animation.
+  Interaktive Kampfauflösung („Loch wählen") wäre ein Folgeschritt über pending
+  sessions.
+- **Einrichtung:** `SUPABASE_SERVICE_ROLE_KEY` setzen (siehe `.env.example`) und
+  Migration `0002_game.sql` im Supabase SQL-Editor ausführen. Ohne den Key
+  antworten die Routen mit `503` (Spiel läuft dann rein clientseitig weiter).
 
 ## Hinweis zu den hochgeladenen Design-Dokumenten
 
