@@ -349,9 +349,9 @@ export default function CoinMasterGame() {
       </div>
 
       {/* ---------- Slot-Maschine ---------- */}
-      <div className="card bg-gradient-to-b from-[#241a2e] to-surface-card">
+      <div className="card bg-gradient-to-b from-[#0e141b] to-surface-card">
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-bold text-amber-300">
+          <span className="text-sm font-bold text-yellow-300">
             {village.emoji} {village.name} · Dorf {state.villageIndex + 1}
           </span>
           <button
@@ -359,7 +359,7 @@ export default function CoinMasterGame() {
             disabled={!dailyReady}
             className={`chip ${
               dailyReady
-                ? "animate-pulse bg-amber-500/20 text-amber-300"
+                ? "animate-pulse bg-yellow-500/20 text-yellow-300"
                 : "bg-gray-500/10 text-gray-500"
             }`}
           >
@@ -367,13 +367,13 @@ export default function CoinMasterGame() {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-amber-500/40 bg-[#120d17] p-3">
+        <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-yellow-500/40 bg-[#0a0e13] p-3">
           {reels.map((sym, i) => (
             <Reel key={i} symbol={sym} spinning={spinningReels[i]} />
           ))}
         </div>
 
-        <div className="mt-2 min-h-[1.5rem] text-center text-sm font-semibold text-amber-300">
+        <div className="mt-2 min-h-[1.5rem] text-center text-sm font-semibold text-yellow-300">
           {toast ?? " "}
         </div>
 
@@ -392,7 +392,7 @@ export default function CoinMasterGame() {
           <button
             onClick={doSpin}
             disabled={busy || state.spins < state.bet || overlay !== null}
-            className="btn flex-1 bg-gradient-to-b from-amber-400 to-amber-600 text-base font-extrabold text-amber-950 shadow-lg shadow-amber-900/40 disabled:opacity-40"
+            className="btn flex-1 bg-gradient-to-b from-yellow-400 to-yellow-600 text-base font-extrabold text-yellow-950 shadow-lg shadow-yellow-900/40 disabled:opacity-40"
           >
             <Zap size={18} />
             {state.spins < state.bet ? "Keine Spins" : busy ? "…" : "DREHEN"}
@@ -428,13 +428,13 @@ export default function CoinMasterGame() {
                   <p className="font-medium">{item.name}</p>
                   <p className="text-xs text-gray-400">
                     {st === "built" && (
-                      <span className="text-emerald-300">
+                      <span className="text-green-300">
                         <Star size={11} className="mr-0.5 inline" />
                         Gebaut
                       </span>
                     )}
                     {st === "damaged" && (
-                      <span className="text-rose-300">Zerstört – Reparatur {fmt(cost)}</span>
+                      <span className="text-red-300">Zerstört – Reparatur {fmt(cost)}</span>
                     )}
                     {st === "none" && <>Kosten: {fmt(cost)} 🪙</>}
                   </p>
@@ -445,8 +445,8 @@ export default function CoinMasterGame() {
                     disabled={state.coins < cost}
                     className={`btn shrink-0 px-3 py-1.5 text-xs ${
                       st === "damaged"
-                        ? "bg-rose-500/20 text-rose-300 disabled:opacity-40"
-                        : "bg-emerald-500/20 text-emerald-300 disabled:opacity-40"
+                        ? "bg-red-500/20 text-red-300 disabled:opacity-40"
+                        : "bg-green-500/20 text-green-300 disabled:opacity-40"
                     }`}
                   >
                     {st === "damaged" ? "Reparieren" : "Bauen"}
@@ -479,7 +479,7 @@ export default function CoinMasterGame() {
           <h3 className="text-lg font-extrabold">🔨 Angriff!</h3>
           <p className="mt-1 text-sm text-gray-300">
             Greife das Dorf von{" "}
-            <span className="font-semibold text-amber-300">
+            <span className="font-semibold text-yellow-300">
               {overlay.setup.enemy.emoji} {overlay.setup.enemy.name}
             </span>{" "}
             an – tippe ein Gebäude an!
@@ -492,7 +492,7 @@ export default function CoinMasterGame() {
                 disabled={overlay.smashed !== null}
                 className={`flex aspect-square items-center justify-center rounded-xl border text-3xl transition active:scale-90 ${
                   overlay.smashed === i
-                    ? "border-rose-500 bg-rose-500/20"
+                    ? "border-red-500 bg-red-500/20"
                     : "border-surface-border bg-surface"
                 }`}
               >
@@ -503,13 +503,13 @@ export default function CoinMasterGame() {
           {overlay.smashed !== null && (
             <div className="mt-4 text-center">
               {overlay.setup.blocked ? (
-                <p className="font-semibold text-sky-300">
+                <p className="font-semibold text-blue-300">
                   Geblockt! {overlay.setup.enemy.name} hatte ein Schild.
                   <br />
                   Trostpreis: {fmt(overlay.setup.rewardBlocked)} 🪙
                 </p>
               ) : (
-                <p className="font-semibold text-emerald-300">
+                <p className="font-semibold text-green-300">
                   Volltreffer! Beute: {fmt(overlay.setup.rewardSuccess)} 🪙
                 </p>
               )}
@@ -526,7 +526,7 @@ export default function CoinMasterGame() {
           <h3 className="text-lg font-extrabold">🐷 Raid!</h3>
           <p className="mt-1 text-sm text-gray-300">
             Du überfällst{" "}
-            <span className="font-semibold text-amber-300">
+            <span className="font-semibold text-yellow-300">
               {overlay.setup.enemy.emoji} {overlay.setup.enemy.name}
             </span>
             ! Grabe an <b>3 von 4</b> Stellen nach dem Versteck.
@@ -542,16 +542,16 @@ export default function CoinMasterGame() {
                   className={`flex h-20 flex-col items-center justify-center rounded-xl border text-2xl transition active:scale-95 ${
                     dug
                       ? amount > 0
-                        ? "border-amber-500 bg-amber-500/15"
+                        ? "border-yellow-500 bg-yellow-500/15"
                         : "border-surface-border bg-surface opacity-60"
-                      : "border-dashed border-amber-500/50 bg-surface"
+                      : "border-dashed border-yellow-500/50 bg-surface"
                   }`}
                 >
                   {dug ? (
                     amount > 0 ? (
                       <>
                         💰
-                        <span className="text-sm font-bold text-amber-300">+{fmt(amount)}</span>
+                        <span className="text-sm font-bold text-yellow-300">+{fmt(amount)}</span>
                       </>
                     ) : (
                       <>
@@ -580,7 +580,7 @@ export default function CoinMasterGame() {
           <div className="py-4 text-center">
             <div className="text-5xl">{overlay.reward.emoji}</div>
             <h3 className="mt-2 text-lg font-extrabold">Tagesbonus!</h3>
-            <p className="mt-1 text-amber-300">{overlay.reward.label}</p>
+            <p className="mt-1 text-yellow-300">{overlay.reward.label}</p>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Super!
             </button>
@@ -603,7 +603,7 @@ export default function CoinMasterGame() {
                 <span className="mt-1 w-full truncate text-center text-[10px] text-gray-300">
                   {c.name}
                 </span>
-                <span className="text-[10px] text-amber-300">{"★".repeat(c.rarity)}</span>
+                <span className="text-[10px] text-yellow-300">{"★".repeat(c.rarity)}</span>
               </div>
             ))}
           </div>
@@ -623,9 +623,9 @@ export default function CoinMasterGame() {
                 <p className="text-sm">
                   <b>{n.enemy.name}</b> hat dich angegriffen –{" "}
                   {n.blockedByShield ? (
-                    <span className="text-sky-300">dein Schild hat gehalten! 🛡️</span>
+                    <span className="text-blue-300">dein Schild hat gehalten! 🛡️</span>
                   ) : (
-                    <span className="text-rose-300">
+                    <span className="text-red-300">
                       {village.items[n.damagedSlot]?.name ?? "ein Gebäude"} wurde zerstört! 💥
                     </span>
                   )}
@@ -645,8 +645,8 @@ export default function CoinMasterGame() {
             <div className="text-5xl">🎉</div>
             <h3 className="mt-2 text-lg font-extrabold">{overlay.name} abgeschlossen!</h3>
             <p className="mt-1 text-sm text-gray-300">
-              Belohnung: <b className="text-amber-300">+{overlay.rewardSpins} Spins</b> und{" "}
-              <b className="text-amber-300">+{fmt(overlay.rewardCoins)} Münzen</b>
+              Belohnung: <b className="text-yellow-300">+{overlay.rewardSpins} Spins</b> und{" "}
+              <b className="text-yellow-300">+{fmt(overlay.rewardCoins)} Münzen</b>
             </p>
             <p className="mt-2 text-sm text-gray-400">
               Weiter geht&apos;s in: {VILLAGES[state.villageIndex].emoji}{" "}
@@ -667,8 +667,8 @@ export default function CoinMasterGame() {
               Set „{overlay.set.name}“ komplett!
             </h3>
             <p className="mt-1 text-sm text-gray-300">
-              Belohnung: <b className="text-amber-300">+{overlay.set.rewardSpins} Spins</b> und{" "}
-              <b className="text-amber-300">+{fmt(overlay.set.rewardCoins)} Münzen</b>
+              Belohnung: <b className="text-yellow-300">+{overlay.set.rewardSpins} Spins</b> und{" "}
+              <b className="text-yellow-300">+{fmt(overlay.set.rewardCoins)} Münzen</b>
             </p>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Stark!
@@ -695,7 +695,7 @@ export default function CoinMasterGame() {
                 <span className="text-3xl">{chest.emoji}</span>
                 <span className="mt-1 text-xs font-semibold">{chest.name}</span>
                 <span className="text-[10px] text-gray-400">{chest.cardCount} Karten</span>
-                <span className="mt-1 text-xs font-bold text-amber-300">{fmt(cost)} 🪙</span>
+                <span className="mt-1 text-xs font-bold text-yellow-300">{fmt(cost)} 🪙</span>
               </button>
             );
           })}
@@ -710,7 +710,7 @@ export default function CoinMasterGame() {
                 <div className="mb-1.5 flex items-center justify-between text-sm">
                   <span className="font-semibold">
                     {set.emoji} {set.name}{" "}
-                    {done && <span className="text-emerald-300">✓</span>}
+                    {done && <span className="text-green-300">✓</span>}
                   </span>
                   <span className="text-gray-400">
                     {owned}/{set.cards.length} · +{set.rewardSpins} ⚡
@@ -724,7 +724,7 @@ export default function CoinMasterGame() {
                         key={c.id}
                         className={`relative flex aspect-[3/4] flex-col items-center justify-center rounded-lg border text-xl ${
                           count > 0
-                            ? "border-amber-500/40 bg-amber-500/10"
+                            ? "border-yellow-500/40 bg-yellow-500/10"
                             : "border-surface-border bg-surface opacity-40"
                         }`}
                         title={`${c.name} (${"★".repeat(c.rarity)})`}
@@ -772,7 +772,7 @@ function Reel({ symbol, spinning }: { symbol: SlotSymbol; spinning: boolean }) {
   }, [spinning]);
   return (
     <div
-      className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-b from-[#2a2033] to-[#1a1320] text-5xl ${
+      className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-b from-[#141a22] to-[#0e141b] text-5xl ${
         spinning ? "blur-[2px]" : ""
       }`}
     >

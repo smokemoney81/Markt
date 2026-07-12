@@ -18,12 +18,12 @@ import {
 const STATUS: {
   value: ContactStatus;
   label: string;
-  tone: "blue" | "amber" | "green" | "pink" | "red";
+  tone: "blue" | "yellow" | "green" | "cyan" | "red";
 }[] = [
   { value: "neu", label: "Neu", tone: "blue" },
-  { value: "screening", label: "Screening", tone: "amber" },
+  { value: "screening", label: "Screening", tone: "yellow" },
   { value: "gebucht", label: "Gebucht", tone: "green" },
-  { value: "stammkunde", label: "Stammkunde", tone: "pink" },
+  { value: "stammkunde", label: "Stammkunde", tone: "cyan" },
   { value: "blacklist", label: "Blacklist", tone: "red" },
 ];
 
@@ -138,13 +138,13 @@ export default function KontaktePage() {
           return (
             <div
               key={c.id}
-              className={`card ${isBlack ? "border-rose-500/40 bg-rose-500/5" : ""}`}
+              className={`card ${isBlack ? "border-red-500/40 bg-red-500/5" : ""}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     {isBlack && (
-                      <ShieldAlert size={16} className="text-rose-400" />
+                      <ShieldAlert size={16} className="text-red-400" />
                     )}
                     <h3 className="truncate font-semibold">{c.name}</h3>
                     <StatusChip label={st.label} tone={st.tone} />
@@ -158,7 +158,7 @@ export default function KontaktePage() {
                     {c.source && <span>· {c.source}</span>}
                   </p>
                   {c.rating ? (
-                    <div className="mt-1 flex items-center gap-0.5 text-amber-300">
+                    <div className="mt-1 flex items-center gap-0.5 text-yellow-300">
                       {Array.from({ length: c.rating }).map((_, i) => (
                         <Star key={i} size={12} fill="currentColor" />
                       ))}
