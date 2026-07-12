@@ -11,6 +11,7 @@ create or replace function public.game_analytics()
 returns jsonb
 language sql
 stable
+set search_path = ''
 as $$
   select jsonb_build_object(
     'players_total',      (select count(*) from public.game_state),
