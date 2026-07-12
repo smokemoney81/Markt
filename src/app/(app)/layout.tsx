@@ -1,4 +1,4 @@
-import BottomNav from "@/components/BottomNav";
+import NavFab from "@/components/NavFab";
 
 // Auth-gebundene, personalisierte Seiten – nicht statisch vorab rendern.
 export const dynamic = "force-dynamic";
@@ -9,9 +9,9 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto min-h-screen max-w-lg pb-20">
+    <div className="mx-auto min-h-screen max-w-lg pb-6">
       {children}
-      <BottomNav />
+      <NavFab />
     </div>
   );
 }
