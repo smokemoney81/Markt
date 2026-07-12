@@ -31,9 +31,11 @@ import {
   rollOutcome,
   shuffle,
   villageScale,
+  type AttackSetup,
   type Card,
   type CardSet,
   type DailyReward,
+  type Enemy,
   type GameState,
   type ItemState,
   type OfflineAttackNews,
@@ -183,8 +185,15 @@ export interface SpinResult {
   outcome: SpinOutcome;
   /** Tatsächlich gutgeschriebene Coins (für Log & UI). */
   coinsGained: number;
-  /** Zusatzinfo bei Kampf-Ergebnissen (nur Anzeige). */
-  combat?: { enemy: string; blocked?: boolean };
+  /**
+   * Vorgewürfelte Kampf-Details für die Enthüllungs-Animation im Client.
+   * Der Ausgang ist bereits serverseitig entschieden und verbucht – die UI
+   * zeigt ihn nur noch an (Coin Master lässt tippen, das Ergebnis steht fest).
+   */
+  combat?: {
+    attack?: AttackSetup;
+    raid?: { enemy: Enemy; holes: number[]; dug: number[] };
+  };
 }
 
 /**
@@ -235,20 +244,20 @@ export function performSpin(input: GameState, betInput: number): { state: GameSt
         coins: state.coins + coinsGained,
         attacksWon: state.attacksWon + (setup.blocked ? 0 : 1),
       };
-      combat = { enemy: setup.enemy.name, blocked: setup.blocked };
+      combat = { attack: setup };
       break;
     }
     case "raid": {
       const setup = makeRaid(state.villageIndex, bet);
       // Autoritativ: 3 der 4 Löcher werden gehoben (1 zufälliges bleibt liegen).
-      const dug = shuffle(setup.holes).slice(0, 3);
-      coinsGained = dug.reduce((s, h) => s + h, 0);
+      const dugIndices = shuffle([0, 1, 2, 3]).slice(0, 3);
+      coinsGained = dugIndices.reduce((s, i) => s + setup.holes[i], 0);
       state = {
         ...state,
         coins: state.coins + coinsGained,
         raidsWon: state.raidsWon + (coinsGained > 0 ? 1 : 0),
       };
-      combat = { enemy: setup.enemy.name };
+      combat = { raid: { enemy: setup.enemy, holes: setup.holes, dug: dugIndices } };
       break;
     }
     case "nothing":
