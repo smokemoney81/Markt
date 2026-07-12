@@ -39,10 +39,13 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
+  const { pathname } = request.nextUrl;
+  const isAuthRoute = pathname.startsWith("/login");
+  // Öffentlich zugänglich (kein Login nötig), z. B. die frei spielbaren Spiele.
+  const isPublicRoute = isAuthRoute || pathname.startsWith("/play");
 
   // Nicht eingeloggt + geschützte Route -> zum Login
-  if (!user && !isAuthRoute) {
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
