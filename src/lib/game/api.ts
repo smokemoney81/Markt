@@ -7,6 +7,7 @@
  * es, die lokalen State-Mutationen durch diese Aufrufe zu ersetzen.
  */
 import type { ActionResponse } from "./server";
+import type { PurchaseResult, RewardResult, ShopOverview } from "./shop";
 import type { GameState, OfflineAttackNews } from "./coinmaster";
 
 async function post<T = ActionResponse>(path: string, body?: unknown): Promise<T> {
@@ -44,3 +45,16 @@ export const buyChest = (chestId: string) => post("/api/spiel/chest", { chestId 
 export const claimDaily = () => post("/api/spiel/daily");
 export const setBet = (bet: number) => post("/api/spiel/bet", { bet });
 export const resetGame = () => post("/api/spiel/reset");
+
+// ---------- Shop / Monetarisierung ----------
+
+export async function fetchShop(): Promise<ShopOverview> {
+  const res = await fetch("/api/spiel/shop");
+  const data = await res.json();
+  if (!res.ok) throw new GameApiError(data?.code ?? "FEHLER", data?.error ?? "Shop nicht verfügbar.");
+  return data;
+}
+
+export const claimReward = (adToken?: string) => post<RewardResult>("/api/spiel/reward", { adToken });
+export const purchase = (productId: string, receipt?: string) =>
+  post<PurchaseResult>("/api/spiel/purchase", { productId, receipt });

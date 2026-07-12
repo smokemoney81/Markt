@@ -53,21 +53,24 @@ src/
       finanzen/       # Einnahmen/Ausgaben
       medien/         # Foto-/Video-Manager (Supabase Storage)
       spiel/          # Münz-Meister (Coin-Master-Klon)
+    api/spiel/        # serverautoritative Spiel-Routen (spin/build/chest/daily/
+                      #   bet/reset/state/shop/reward/purchase)
     login/            # Auth-Seite (Registrieren/Login)
     layout.tsx        # Root-Layout, Service-Worker-Registrierung
   components/
-    game/CoinMasterGame.tsx   # Spiel-UI (Client-Component)
+    game/CoinMasterGame.tsx   # Spiel-UI (Client-Component, dünner Renderer)
     BottomNav.tsx, PageHeader.tsx, ui.tsx, ...
-    api/spiel/        # serverautoritative Spiel-Routen (spin/build/chest/daily/bet/reset/state)
   lib/
     supabase/         # client.ts, server.ts, service.ts, middleware.ts (SSR-Clients)
     game/
       coinmaster.ts   # Spiel-Logik & Balancing (pure functions, single source of truth)
       server.ts       # serverseitige Anwendung + Persistenz derselben Logik
+      shop.ts         # Monetarisierung (Katalog, Rewarded Loop, Käufe)
       api.ts          # Client-Anbindung an die Spiel-Routen
     types.ts, format.ts, useTable.ts
 supabase/migrations/0001_init.sql   # Dashboard-Schema + RLS + Storage-Bucket
 supabase/migrations/0002_game.sql   # Spiel-Ökonomie (game_state, game_spin_log)
+supabase/migrations/0003_shop.sql   # Monetarisierung (game_reward_log, game_purchases)
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool
@@ -89,9 +92,9 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
   (`OUTCOME_WEIGHTS`, `itemCost`, `chestCost`, Regeneration, Tagesbonus, Karten).
   Änderungen an der Ökonomie **immer hier**, nicht in der UI und nicht dupliziert
   im Server-Code – `server.ts` nutzt genau diese pure functions.
-- **UI:** `src/components/game/CoinMasterGame.tsx` (Client-Component). Aktuell
-  läuft die UI noch gegen `localStorage` (`coinmaster_save_v1`); das Verdrahten
-  auf die Server-Routen (`src/lib/game/api.ts`) ist der nächste Schritt.
+- **UI:** `src/components/game/CoinMasterGame.tsx` (Client-Component) ist ein
+  **dünner Renderer**: kein `localStorage` mehr, jede Aktion läuft über die
+  Server-Routen (`src/lib/game/api.ts`), der Zustand kommt autoritativ zurück.
 
 ### Serverautoritative Ökonomie (F2P-Fundament)
 
@@ -109,8 +112,23 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
   Interaktive Kampfauflösung („Loch wählen") wäre ein Folgeschritt über pending
   sessions.
 - **Einrichtung:** `SUPABASE_SERVICE_ROLE_KEY` setzen (siehe `.env.example`) und
-  Migration `0002_game.sql` im Supabase SQL-Editor ausführen. Ohne den Key
-  antworten die Routen mit `503` (Spiel läuft dann rein clientseitig weiter).
+  Migrationen `0002_game.sql` + `0003_shop.sql` im Supabase SQL-Editor ausführen.
+  Ohne den Key antworten die Routen mit `503`.
+
+### Monetarisierung (Shop & Rewarded Loop)
+
+- **Wo:** `src/lib/game/shop.ts` (Katalog `SHOP_PRODUCTS`, `REWARD_GRANT`,
+  `REWARD_DAILY_CAP`), Tabellen `game_reward_log` / `game_purchases`
+  (Migration `0003_shop.sql`, RLS nur SELECT der eigenen Zeilen).
+- **Routen:** `GET /api/spiel/shop`, `POST /api/spiel/reward` (gedeckelter
+  Rewarded Loop), `POST /api/spiel/purchase`.
+- **Rewarded Loop:** täglich gedeckelte Gratis-Belohnung (Retention-Hook). Wird
+  zum Rewarded-Ad, sobald in `verifyAdToken` ein Ad-Netzwerk-Callback geprüft wird.
+- **Käufe:** `verifyPurchase` ist die Zahlungs-Naht. **Ohne** konfigurierten
+  Anbieter wird bewusst **nichts** gutgeschrieben (Antwort `402`) – kein „free
+  money". `PAYMENTS_TEST_MODE=true` lässt Käufe nur für lokale Tests durch
+  (`provider='test'`), niemals in Produktion. Echten Anbieter (Stripe-Session /
+  Google-Play-Receipt) genau hier einhängen.
 
 ## Hinweis zu den hochgeladenen Design-Dokumenten
 
