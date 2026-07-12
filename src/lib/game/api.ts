@@ -58,3 +58,14 @@ export async function fetchShop(): Promise<ShopOverview> {
 export const claimReward = (adToken?: string) => post<RewardResult>("/api/spiel/reward", { adToken });
 export const purchase = (productId: string, receipt?: string) =>
   post<PurchaseResult>("/api/spiel/purchase", { productId, receipt });
+
+/**
+ * Startet den Kauf. Mit Stripe kommt `{ url }` zurück (Weiterleitung zur
+ * Bezahlseite); im Test-Modus `{ granted, state }` (sofort gutgeschrieben).
+ */
+export type CheckoutResult =
+  | { url: string }
+  | { granted: true; state: GameState };
+
+export const checkout = (productId: string) =>
+  post<CheckoutResult>("/api/spiel/checkout", { productId });

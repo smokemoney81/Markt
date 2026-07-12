@@ -167,7 +167,61 @@ export interface PurchaseResult {
   product: ShopProduct;
 }
 
-/** Führt einen Kauf aus – nur mit gültigem Zahlungsnachweis. */
+/** Wirft, wenn ein Einmal-Produkt bereits gewährt wurde. */
+export async function assertNotOwned(db: SupabaseClient, userId: string, product: ShopProduct): Promise<void> {
+  if (!product.once) return;
+  const { count } = await db
+    .from("game_purchases")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("product_id", product.id)
+    .eq("status", "granted");
+  if ((count ?? 0) > 0) {
+    throw new GameError("BEREITS_GEKAUFT", "Dieses Produkt wurde bereits gekauft.");
+  }
+}
+
+/**
+ * Verbucht einen (bereits bezahlten) Kauf und schreibt die Gegenstände gut.
+ * Idempotent über `unique(provider, provider_ref)`: Der Kauf wird ZUERST
+ * eingefügt – schlägt das mit Unique-Konflikt fehl (z. B. Stripe-Webhook-
+ * Retry), wurde bereits gewährt und es passiert nichts weiter.
+ *
+ * Aufrufer garantiert, dass die Zahlung verifiziert ist (Test-Modus oder
+ * signierter Stripe-Webhook).
+ */
+export async function recordAndGrant(
+  db: SupabaseClient,
+  userId: string,
+  product: ShopProduct,
+  provider: string,
+  providerRef: string,
+  amountCents: number,
+): Promise<{ state?: GameState; alreadyGranted: boolean }> {
+  const { error: insErr } = await db.from("game_purchases").insert({
+    user_id: userId,
+    product_id: product.id,
+    provider,
+    provider_ref: providerRef,
+    amount_cents: amountCents,
+    currency: product.currency,
+    status: "granted",
+  });
+  if (insErr) {
+    if (insErr.code === "23505") return { alreadyGranted: true }; // Duplikat → schon gewährt
+    throw insErr;
+  }
+
+  const state = applyGrant(await loadOrCreateState(db, userId), product.grant);
+  await persistState(db, userId, state);
+  await logReward(db, userId, "purchase", product.grant, product.id);
+  return { state, alreadyGranted: false };
+}
+
+/**
+ * Direkter Kauf (nur Test-Modus ohne echten Anbieter). Der reguläre Kauf-Flow
+ * läuft über die Checkout-Route + Stripe-Webhook.
+ */
 export async function purchase(
   db: SupabaseClient,
   userId: string,
@@ -178,42 +232,14 @@ export async function purchase(
   if (!product) {
     throw new GameError("UNBEKANNTES_PRODUKT", "Unbekanntes Produkt.");
   }
+  await assertNotOwned(db, userId, product);
 
-  // Einmal-Produkte nur einmal gewähren.
-  if (product.once) {
-    const { count } = await db
-      .from("game_purchases")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("product_id", product.id)
-      .eq("status", "granted");
-    if ((count ?? 0) > 0) {
-      throw new GameError("BEREITS_GEKAUFT", "Dieses Produkt wurde bereits gekauft.");
-    }
-  }
-
-  // Zahlungsnachweis prüfen (ohne konfigurierten Anbieter: Abbruch).
   const { provider, providerRef } = await verifyPurchase(product, receipt);
-
-  const state = applyGrant(await loadOrCreateState(db, userId), product.grant);
-  await persistState(db, userId, state);
-
-  const { error } = await db.from("game_purchases").insert({
-    user_id: userId,
-    product_id: product.id,
-    provider,
-    provider_ref: providerRef,
-    amount_cents: product.priceCents,
-    currency: product.currency,
-    status: "granted",
-  });
-  if (error) {
-    // Idempotenz-Verletzung (doppelte provider_ref) o. Ä. – nicht doppelt gutschreiben.
+  const res = await recordAndGrant(db, userId, product, provider, providerRef ?? `${provider}_${Date.now()}`, product.priceCents);
+  if (res.alreadyGranted || !res.state) {
     throw new GameError("KAUF_KONFLIKT", "Kauf konnte nicht verbucht werden (evtl. Duplikat).");
   }
-  await logReward(db, userId, "purchase", product.grant, product.id);
-
-  return { state, product };
+  return { state: res.state, product };
 }
 
 // ---------- Verifikations-Nahtstellen ----------

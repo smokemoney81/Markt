@@ -66,6 +66,7 @@ src/
       coinmaster.ts   # Spiel-Logik & Balancing (pure functions, single source of truth)
       server.ts       # serverseitige Anwendung + Persistenz derselben Logik
       shop.ts         # Monetarisierung (Katalog, Rewarded Loop, Käufe)
+      stripe.ts       # Stripe-Client (server-only) für den Kauf-Flow
       api.ts          # Client-Anbindung an die Spiel-Routen
     types.ts, format.ts, useTable.ts
 supabase/migrations/0001_init.sql   # Dashboard-Schema + RLS + Storage-Bucket
@@ -124,11 +125,17 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
   Rewarded Loop), `POST /api/spiel/purchase`.
 - **Rewarded Loop:** täglich gedeckelte Gratis-Belohnung (Retention-Hook). Wird
   zum Rewarded-Ad, sobald in `verifyAdToken` ein Ad-Netzwerk-Callback geprüft wird.
-- **Käufe:** `verifyPurchase` ist die Zahlungs-Naht. **Ohne** konfigurierten
-  Anbieter wird bewusst **nichts** gutgeschrieben (Antwort `402`) – kein „free
-  money". `PAYMENTS_TEST_MODE=true` lässt Käufe nur für lokale Tests durch
-  (`provider='test'`), niemals in Produktion. Echten Anbieter (Stripe-Session /
-  Google-Play-Receipt) genau hier einhängen.
+- **Käufe (Stripe):** `POST /api/spiel/checkout` legt eine Stripe-Checkout-
+  Session an (Metadaten `userId`/`productId`) und liefert `{ url }` zum
+  Weiterleiten. Die Gutschrift passiert **autoritativ im Webhook**
+  (`POST /api/spiel/stripe-webhook`, Event `checkout.session.completed`,
+  Signatur gegen `STRIPE_WEBHOOK_SECRET` geprüft) – nie beim Client-Rücksprung.
+  Idempotent über `recordAndGrant` (insert-first auf `game_purchases`).
+- **Fallbacks:** Ohne Stripe, aber mit `PAYMENTS_TEST_MODE=true` schreibt
+  Checkout direkt gut (nur lokal, `provider='test'`). Ohne beides → `402`
+  (kein „free money"). Stripe-Keys sind server-only (`.env.example`).
+- **Middleware:** `/api`-Routen werden nicht auf `/login` umgeleitet (der
+  Webhook hat keine Session) – sie prüfen Auth selbst.
 
 ## Hinweis zu den hochgeladenen Design-Dokumenten
 

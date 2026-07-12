@@ -106,6 +106,24 @@ export default function CoinMasterGame() {
     };
   }, []);
 
+  // ----- Rückkehr von der Stripe-Bezahlseite -----
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const kauf = params.get("kauf");
+    if (!kauf) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (kauf === "erfolg") {
+      showToast("✅ Kauf erfolgreich – Gutschrift folgt gleich …");
+      // Webhook braucht einen Moment; Stand kurz danach nachladen.
+      const to = setTimeout(() => {
+        api.fetchState().then(({ state }) => setState(state)).catch(() => {});
+      }, 2500);
+      timeouts.current.push(to);
+    } else if (kauf === "abbruch") {
+      showToast("Kauf abgebrochen.");
+    }
+  }, [showToast]);
+
   // ----- Sekundentakt: nur Countdown-Anzeige (Regen läuft serverseitig) -----
   useEffect(() => {
     const iv = setInterval(() => setNow(Date.now()), 1000);
@@ -293,7 +311,12 @@ export default function CoinMasterGame() {
 
   async function buyProduct(product: ShopProduct) {
     await run(async () => {
-      const res = await api.purchase(product.id);
+      const res = await api.checkout(product.id);
+      if ("url" in res) {
+        window.location.href = res.url; // Weiterleitung zur Stripe-Bezahlseite
+        return;
+      }
+      // Test-Modus: sofort gutgeschrieben
       setState(res.state);
       setShopOpen(false);
       showToast(`✅ ${product.label} gutgeschrieben`);
