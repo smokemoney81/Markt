@@ -10,6 +10,7 @@ import {
   Wallet,
   Images,
   Gamepad2,
+  Grid3x3,
 } from "lucide-react";
 
 const items = [
@@ -20,6 +21,7 @@ const items = [
   { href: "/finanzen", label: "Finanzen", icon: Wallet },
   { href: "/medien", label: "Medien", icon: Images },
   { href: "/spiel", label: "Spiel", icon: Gamepad2 },
+  { href: "/aether", label: "Aether", icon: Grid3x3 },
 ];
 
 export default function BottomNav() {
@@ -27,7 +29,7 @@ export default function BottomNav() {
 
   return (
     <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-surface-border bg-surface/95 backdrop-blur">
-      <ul className="mx-auto grid max-w-lg grid-cols-7">
+      <ul className="mx-auto grid max-w-lg grid-cols-8">
         {items.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/" ? pathname === "/" : pathname.startsWith(href);
