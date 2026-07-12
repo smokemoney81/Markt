@@ -58,7 +58,7 @@ export default function LoginPage() {
 
       {!configured ? (
         <div className="card text-sm text-gray-300">
-          <p className="font-semibold text-amber-300">Setup nötig</p>
+          <p className="font-semibold text-yellow-300">Setup nötig</p>
           <p className="mt-2">
             Lege die Umgebungsvariablen <code>NEXT_PUBLIC_SUPABASE_URL</code> und{" "}
             <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> an (siehe{" "}
@@ -93,7 +93,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {msg && <p className="text-sm text-amber-300">{msg}</p>}
+          {msg && <p className="text-sm text-yellow-300">{msg}</p>}
 
           <button type="submit" className="btn-primary w-full" disabled={loading}>
             {loading && <Loader2 size={16} className="animate-spin" />}

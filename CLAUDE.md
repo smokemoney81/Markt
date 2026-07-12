@@ -40,6 +40,33 @@ Es gibt **kein** Test-Setup (kein Jest/Vitest, kein `npm test`). Änderungen mit
 `npm run build` + `npm run lint` prüfen. Für UI-Änderungen die betroffene Seite
 im Dev-Server ansehen.
 
+## Deployment & Live-Vorschau
+
+- **Vercel-Projekt:** `markt` (Account/Team `bait-buddyvercelapp`).
+- **Live-Vorschau (zum Prüfen von Änderungen im echten Deployment):**
+  <https://markt-git-claude-app-changes-not-vis-e5a751-bait-buddyvercelapp.vercel.app/>
+  (PR-Preview-Deployment; jeder Push auf den PR-Branch baut es neu).
+- **Nach Änderungen immer hier gegenprüfen**, dass sie tatsächlich sichtbar sind –
+  ein grüner lokaler Build allein garantiert nicht, dass die Live-App sie zeigt.
+
+### Wichtig: Alles auf EINEM Branch halten (sonst „keine Änderungen sichtbar")
+
+Am 12.07.2026 war die Tagesarbeit auf **zwei divergierenden Branches** gelandet,
+weil Pull Requests unterschiedliche Base-Branches hatten:
+
+- `main` → serverautoritative Münz-Meister-Ökonomie (Shop, Stripe, Analytics)
+- `claude/markt-de-dashboard-j5e2sx` (Repo-Default) → Aether Grid, Neon-Theme, FAB
+
+Kein Branch enthielt alles → das Deployment zeigte immer nur die Hälfte, und
+Änderungen wirkten „unsichtbar". **Regeln daraus:**
+
+1. PRs immer gegen **denselben** Base-Branch öffnen (den Branch, den Vercel als
+   **Production Branch** deployt). Nicht mal gegen `main`, mal gegen den Default.
+2. Vor dem Verkünden „fertig" sicherstellen, dass die **vereinte** Historie auf
+   dem von Vercel deployten Production-Branch liegt.
+3. Bei Divergenz: Branches zusammenführen und mit `npm run build` + Live-Vorschau
+   verifizieren, dass **alle** Routen gemeinsam da sind.
+
 ## Projektstruktur
 
 ```

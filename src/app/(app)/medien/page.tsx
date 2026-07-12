@@ -190,7 +190,7 @@ export default function MedienPage() {
                 <Star
                   size={14}
                   className={
-                    m.is_favorite ? "text-amber-300" : "text-white/70"
+                    m.is_favorite ? "text-yellow-300" : "text-white/70"
                   }
                   fill={m.is_favorite ? "currentColor" : "none"}
                 />
