@@ -43,9 +43,12 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute = pathname.startsWith("/login");
   // Öffentlich zugänglich (kein Login nötig), z. B. die frei spielbaren Spiele.
   const isPublicRoute = isAuthRoute || pathname.startsWith("/play");
+  // API-Routen kümmern sich selbst um Auth (JSON-Antworten statt Redirect);
+  // insbesondere der Stripe-Webhook hat keine Session-Cookies.
+  const isApiRoute = pathname.startsWith("/api");
 
   // Nicht eingeloggt + geschützte Route -> zum Login
-  if (!user && !isPublicRoute) {
+  if (!user && !isPublicRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

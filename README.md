@@ -49,6 +49,13 @@ anzulegen.
 - **Tailwind CSS** – mobile-first, dunkles Design
 - **PWA** – installierbar, Basis-Offline via Service Worker
 
+## Weitere Tools im Repo
+- [`local-llm`](local-llm) – Sprachmodelle **offline auf der eigenen Maschine**
+  laufen lassen (llama.cpp, keine Cloud nötig).
+- [`ollama-cloud`](ollama-cloud) – ein **Ollama-Modell auf Google Cloud hosten**
+  (Cloud Run oder Compute Engine), Modell aus dem Ollama-Katalog oder direkt von
+  Hugging Face, mit OpenAI-kompatibler API.
+
 ## Hinweis
 Das Anbieten und Bewerben erotischer Dienstleistungen ist in Deutschland legal.
 Beachte deine Pflichten (u. a. Anmeldung nach dem Prostituiertenschutzgesetz,

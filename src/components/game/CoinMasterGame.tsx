@@ -5,13 +5,13 @@ import {
   ArrowLeftRight,
   Layers,
   RotateCcw,
+  ShoppingBag,
   Star,
   X,
   Zap,
 } from "lucide-react";
 import { Sheet } from "@/components/ui";
 import {
-  applyRegen,
   BET_STEPS,
   CARD_SETS,
   CHESTS,
@@ -19,33 +19,26 @@ import {
   DAILY_BONUS_HOURS,
   fmt,
   itemCost,
-  makeAttack,
-  makeRaid,
   MAX_SHIELDS,
   MAX_SPINS,
-  newGame,
-  openChest,
   reelsForOutcome,
   repairCost,
-  rollDailyReward,
-  rollOfflineAttacks,
-  rollOutcome,
   SPIN_REGEN_SECONDS,
   VILLAGES,
-  villageScale,
   type AttackSetup,
   type Card,
   type CardSet,
   type Chest,
   type DailyReward,
+  type Enemy,
   type GameState,
   type OfflineAttackNews,
-  type RaidSetup,
   type SlotSymbol,
-  type SpinOutcome,
 } from "@/lib/game/coinmaster";
-
-const SAVE_KEY = "coinmaster_save_v1";
+import * as api from "@/lib/game/api";
+import { GameApiError } from "@/lib/game/api";
+import type { ActionResponse } from "@/lib/game/server";
+import type { ShopOverview, ShopProduct } from "@/lib/game/shop";
 
 const SYMBOL_EMOJI: Record<SlotSymbol, string> = {
   coin: "🪙",
@@ -60,58 +53,34 @@ const ALL_SYMBOLS: SlotSymbol[] = ["coin", "bag", "energy", "hammer", "pig", "sh
 
 type Overlay =
   | { type: "attack"; setup: AttackSetup; smashed: number | null }
-  | { type: "raid"; setup: RaidSetup; dug: number[] }
-  | { type: "daily"; reward: DailyReward | null }
+  | { type: "raid"; enemy: Enemy; holes: number[]; dug: number[]; revealed: number[] }
+  | { type: "daily"; reward: DailyReward }
   | { type: "chest"; chest: Chest; cards: Card[] }
   | { type: "offline"; news: OfflineAttackNews[] }
   | { type: "village"; name: string; rewardSpins: number; rewardCoins: number }
   | { type: "set"; set: CardSet }
   | null;
 
+function errMsg(e: unknown): string {
+  return e instanceof GameApiError ? e.message : "Verbindungsfehler.";
+}
+
 export default function CoinMasterGame() {
   const [state, setState] = useState<GameState | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const [reels, setReels] = useState<SlotSymbol[]>(["coin", "energy", "bag"]);
   const [spinningReels, setSpinningReels] = useState<boolean[]>([false, false, false]);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shop, setShop] = useState<ShopOverview | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const busy = spinningReels.some(Boolean);
   const timeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  // ----- Laden + Offline-Ereignisse -----
-  useEffect(() => {
-    let loaded: GameState;
-    try {
-      const raw = localStorage.getItem(SAVE_KEY);
-      loaded = raw ? { ...newGame(), ...(JSON.parse(raw) as GameState) } : newGame();
-    } catch {
-      loaded = newGame();
-    }
-    const t = Date.now();
-    loaded = applyRegen(loaded, t);
-    const { state: afterAttacks, news } = rollOfflineAttacks(loaded, t);
-    setState(afterAttacks);
-    if (news.length > 0) setOverlay({ type: "offline", news });
-    return () => {
-      timeouts.current.forEach(clearTimeout);
-    };
-  }, []);
-
-  // ----- Speichern -----
-  useEffect(() => {
-    if (state) localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  }, [state]);
-
-  // ----- Sekundentakt: Regeneration & Countdown -----
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const t = Date.now();
-      setNow(t);
-      setState((s) => (s ? applyRegen(s, t) : s));
-    }, 1000);
-    return () => clearInterval(iv);
-  }, []);
+  const stateRef = useRef<GameState | null>(null);
+  stateRef.current = state;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -119,18 +88,89 @@ export default function CoinMasterGame() {
     timeouts.current.push(to);
   }, []);
 
+  // ----- Laden vom Server (autoritativ) + Offline-Ereignisse -----
+  useEffect(() => {
+    const timeoutRef = timeouts.current;
+    let active = true;
+    api
+      .fetchState()
+      .then(({ state, news }) => {
+        if (!active) return;
+        setState(state);
+        if (news.length > 0) setOverlay({ type: "offline", news });
+      })
+      .catch((e) => active && setLoadError(errMsg(e)));
+    return () => {
+      active = false;
+      timeoutRef.forEach(clearTimeout);
+    };
+  }, []);
+
+  // ----- Rückkehr von der Stripe-Bezahlseite -----
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const kauf = params.get("kauf");
+    if (!kauf) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (kauf === "erfolg") {
+      showToast("✅ Kauf erfolgreich – Gutschrift folgt gleich …");
+      // Webhook braucht einen Moment; Stand kurz danach nachladen.
+      const to = setTimeout(() => {
+        api.fetchState().then(({ state }) => setState(state)).catch(() => {});
+      }, 2500);
+      timeouts.current.push(to);
+    } else if (kauf === "abbruch") {
+      showToast("Kauf abgebrochen.");
+    }
+  }, [showToast]);
+
+  // ----- Sekundentakt: nur Countdown-Anzeige (Regen läuft serverseitig) -----
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ----- Hintergrund-Refresh: regenerierte Spins vom Server nachladen -----
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (pending || busy || overlay) return;
+      const s = stateRef.current;
+      if (s && s.spins < MAX_SPINS) {
+        api.fetchState().then(({ state }) => setState(state)).catch(() => {});
+      }
+    }, 20_000);
+    return () => clearInterval(iv);
+  }, [pending, busy, overlay]);
+
+  /** Führt eine Server-Aktion aus und behandelt Fehler einheitlich. */
+  const run = useCallback(
+    async (fn: () => Promise<void>) => {
+      if (pending) return;
+      setPending(true);
+      try {
+        await fn();
+      } catch (e) {
+        showToast(errMsg(e));
+      } finally {
+        setPending(false);
+      }
+    },
+    [pending, showToast],
+  );
+
   // ----- Spin -----
-  function doSpin() {
-    if (!state || busy || overlay || state.spins < state.bet) return;
-    const bet = state.bet;
-    const { villageIndex, shields } = state;
-    const outcome = rollOutcome(villageIndex, bet);
-    const finalReels = reelsForOutcome(outcome);
-
-    setState({ ...state, spins: state.spins - bet, totalSpins: state.totalSpins + 1 });
+  async function doSpin() {
+    if (!state || busy || overlay || pending || state.spins < state.bet) return;
     setSpinningReels([true, true, true]);
-
-    // Walzen nacheinander stoppen
+    let res: ActionResponse;
+    try {
+      res = await api.spin(state.bet);
+    } catch (e) {
+      setSpinningReels([false, false, false]);
+      showToast(errMsg(e));
+      return;
+    }
+    const finalReels = reelsForOutcome(res.spin!.outcome);
     [600, 950, 1300].forEach((ms, i) => {
       const to = setTimeout(() => {
         setReels((r) => {
@@ -143,176 +183,158 @@ export default function CoinMasterGame() {
           next[i] = false;
           return next;
         });
-        if (i === 2) resolveOutcome(outcome, bet, villageIndex, shields);
+        if (i === 2) applySpin(res);
       }, ms);
       timeouts.current.push(to);
     });
   }
 
-  function resolveOutcome(
-    outcome: SpinOutcome,
-    bet: number,
-    villageIndex: number,
-    shieldsAtSpin: number,
-  ) {
-    switch (outcome.kind) {
+  /** Wendet das (serverseitig bereits verbuchte) Spin-Ergebnis auf die UI an. */
+  function applySpin(res: ActionResponse) {
+    const spin = res.spin!;
+    setState(res.state);
+    switch (spin.outcome.kind) {
       case "coins":
-        showToast(`+${fmt(outcome.coins)} Münzen`);
-        setState((s) => (s ? { ...s, coins: s.coins + outcome.coins } : s));
-        return;
+        showToast(`+${fmt(spin.outcome.coins)} Münzen`);
+        break;
       case "jackpot":
-        showToast(`💰 Jackpot! +${fmt(outcome.coins)} Münzen`);
-        setState((s) => (s ? { ...s, coins: s.coins + outcome.coins } : s));
-        return;
+        showToast(`💰 Jackpot! +${fmt(spin.outcome.coins)} Münzen`);
+        break;
       case "energy":
-        showToast(`⚡ +${outcome.spins} Spins`);
-        setState((s) => (s ? { ...s, spins: s.spins + outcome.spins } : s));
-        return;
+        showToast(`⚡ +${spin.outcome.spins} Spins`);
+        break;
       case "shield":
-        if (shieldsAtSpin >= MAX_SHIELDS) {
-          const consolation = 5_000 * villageScale(villageIndex);
-          showToast(`🛡️ Schilde voll → +${fmt(consolation)} Münzen`);
-          setState((s) => (s ? { ...s, coins: s.coins + consolation } : s));
-        } else {
-          showToast("🛡️ +1 Schild");
-          setState((s) =>
-            s ? { ...s, shields: Math.min(MAX_SHIELDS, s.shields + 1) } : s,
-          );
-        }
-        return;
+        showToast(spin.coinsGained > 0 ? `🛡️ Schilde voll → +${fmt(spin.coinsGained)} Münzen` : "🛡️ +1 Schild");
+        break;
       case "attack":
-        setOverlay({ type: "attack", setup: makeAttack(villageIndex, bet), smashed: null });
-        return;
+        if (spin.combat?.attack) setOverlay({ type: "attack", setup: spin.combat.attack, smashed: null });
+        break;
       case "raid":
-        setOverlay({ type: "raid", setup: makeRaid(villageIndex, bet), dug: [] });
-        return;
+        if (spin.combat?.raid) {
+          const { enemy, holes, dug } = spin.combat.raid;
+          setOverlay({ type: "raid", enemy, holes, dug, revealed: [] });
+        }
+        break;
+      case "nothing":
+        break;
     }
   }
 
-  // ----- Angriff -----
+  // ----- Angriff (Enthüllung – Beute ist serverseitig bereits verbucht) -----
   function smash(slot: number) {
     if (overlay?.type !== "attack" || overlay.smashed !== null) return;
     setOverlay({ ...overlay, smashed: slot });
   }
 
-  function collectAttack() {
-    if (overlay?.type !== "attack" || overlay.smashed === null || !state) return;
-    const reward = overlay.setup.blocked ? overlay.setup.rewardBlocked : overlay.setup.rewardSuccess;
-    setState({
-      ...state,
-      coins: state.coins + reward,
-      attacksWon: state.attacksWon + (overlay.setup.blocked ? 0 : 1),
-    });
-    showToast(`+${fmt(reward)} Münzen erbeutet`);
-    setOverlay(null);
-  }
-
-  // ----- Raid -----
-  function dig(hole: number) {
-    if (overlay?.type !== "raid" || overlay.dug.includes(hole) || overlay.dug.length >= 3) return;
-    setOverlay({ ...overlay, dug: [...overlay.dug, hole] });
-  }
-
-  function collectRaid() {
-    if (overlay?.type !== "raid" || overlay.dug.length < 3 || !state) return;
-    const gained = overlay.dug.reduce((s, h) => s + overlay.setup.holes[h], 0);
-    setState({
-      ...state,
-      coins: state.coins + gained,
-      raidsWon: state.raidsWon + (gained > 0 ? 1 : 0),
-    });
-    showToast(gained > 0 ? `🐷 Raid: +${fmt(gained)} Münzen` : "🐷 Raid: leider nichts gefunden");
-    setOverlay(null);
+  // ----- Raid (Enthüllung) -----
+  function reveal(hole: number) {
+    if (overlay?.type !== "raid" || !overlay.dug.includes(hole) || overlay.revealed.includes(hole)) return;
+    setOverlay({ ...overlay, revealed: [...overlay.revealed, hole] });
   }
 
   // ----- Dorf -----
-  function buildOrRepair(slot: number) {
-    if (!state) return;
-    const st = state.items[slot];
-    const cost = st === "damaged" ? repairCost(state.villageIndex, slot) : itemCost(state.villageIndex, slot);
-    if (st === "built" || state.coins < cost) return;
-    const items = [...state.items];
-    items[slot] = "built";
-    let next: GameState = {
-      ...state,
-      items,
-      coins: state.coins - cost,
-      stars: state.stars + (st === "none" ? 1 : 0),
-    };
-    if (items.every((it) => it === "built") && state.villageIndex < VILLAGES.length - 1) {
-      const rewardSpins = 25;
-      const rewardCoins = 50_000 * villageScale(state.villageIndex);
-      next = {
-        ...next,
-        villageIndex: state.villageIndex + 1,
-        items: ["none", "none", "none", "none", "none"],
-        spins: next.spins + rewardSpins,
-        coins: next.coins + rewardCoins,
-      };
-      setOverlay({
-        type: "village",
-        name: VILLAGES[state.villageIndex].name,
-        rewardSpins,
-        rewardCoins,
-      });
-    }
-    setState(next);
+  async function buildOrRepair(slot: number) {
+    await run(async () => {
+      const res = await api.build(slot);
+      setState(res.state);
+      if (res.build?.villageCompleted) {
+        setOverlay({ type: "village", ...res.build.villageCompleted });
+      }
+    });
   }
 
   // ----- Truhen & Karten -----
-  function buyChest(chest: Chest) {
-    if (!state) return;
-    const cost = chestCost(chest, state.villageIndex);
-    if (state.coins < cost) return;
-    const drawn = openChest(chest);
-    const cards = { ...state.cards };
-    for (const c of drawn) cards[c.id] = (cards[c.id] ?? 0) + 1;
-
-    let next: GameState = { ...state, coins: state.coins - cost, cards };
-    // Set-Vervollständigung prüfen
-    let completedSet: CardSet | null = null;
-    for (const set of CARD_SETS) {
-      if (next.completedSets.includes(set.name)) continue;
-      if (set.cards.every((c) => (cards[c.id] ?? 0) > 0)) {
-        completedSet = set;
-        next = {
-          ...next,
-          completedSets: [...next.completedSets, set.name],
-          spins: next.spins + set.rewardSpins,
-          coins: next.coins + set.rewardCoins,
-        };
-        break;
+  async function buyChest(chest: Chest) {
+    await run(async () => {
+      const res = await api.buyChest(chest.id);
+      setState(res.state);
+      setOverlay({ type: "chest", chest, cards: res.chest!.cards });
+      if (res.chest?.completedSet) {
+        const set = res.chest.completedSet;
+        const to = setTimeout(() => setOverlay({ type: "set", set }), 2600);
+        timeouts.current.push(to);
       }
-    }
-    setState(next);
-    setOverlay({ type: "chest", chest, cards: drawn });
-    if (completedSet) {
-      const set = completedSet;
-      const to = setTimeout(() => setOverlay({ type: "set", set }), 2600);
-      timeouts.current.push(to);
-    }
+    });
   }
 
   // ----- Tagesbonus -----
   const dailyReady = state ? now - state.lastDailyAt >= DAILY_BONUS_HOURS * 3_600_000 : false;
 
-  function claimDaily() {
-    if (!state || !dailyReady) return;
-    const reward = rollDailyReward(state.villageIndex);
-    setState({
-      ...state,
-      lastDailyAt: Date.now(),
-      spins: state.spins + reward.spins,
-      coins: state.coins + reward.coins,
+  async function claimDaily() {
+    if (!dailyReady) return;
+    await run(async () => {
+      const res = await api.claimDaily();
+      setState(res.state);
+      if (res.daily) setOverlay({ type: "daily", reward: res.daily });
     });
-    setOverlay({ type: "daily", reward });
   }
 
-  function resetGame() {
+  async function cycleBet() {
+    if (!state || busy || pending) return;
+    const idx = BET_STEPS.indexOf(state.bet);
+    const next = BET_STEPS[(idx + 1) % BET_STEPS.length];
+    setState({ ...state, bet: next });
+    try {
+      await api.setBet(next);
+    } catch {
+      // Nicht kritisch – der Server nimmt den Einsatz beim nächsten Spin ohnehin entgegen.
+    }
+  }
+
+  async function resetGame() {
     if (!confirm("Spielstand wirklich komplett zurücksetzen?")) return;
-    const fresh = newGame();
-    setState(fresh);
-    setOverlay(null);
+    await run(async () => {
+      const res = await api.resetGame();
+      setState(res.state);
+      setOverlay(null);
+    });
+  }
+
+  // ----- Shop / Monetarisierung -----
+  function openShop() {
+    setShopOpen(true);
+    api.fetchShop().then(setShop).catch((e) => showToast(errMsg(e)));
+  }
+
+  async function claimReward() {
+    await run(async () => {
+      const res = await api.claimReward();
+      setState(res.state);
+      setShop((s) => (s ? { ...s, reward: res.status } : s));
+      const parts = [
+        res.grant.coins ? `+${fmt(res.grant.coins)} Münzen` : null,
+        res.grant.spins ? `+${res.grant.spins} Spins` : null,
+      ].filter(Boolean);
+      showToast(`🎬 Belohnung: ${parts.join(" · ")}`);
+    });
+  }
+
+  async function buyProduct(product: ShopProduct) {
+    await run(async () => {
+      const res = await api.checkout(product.id);
+      if ("url" in res) {
+        window.location.href = res.url; // Weiterleitung zur Stripe-Bezahlseite
+        return;
+      }
+      // Test-Modus: sofort gutgeschrieben
+      setState(res.state);
+      setShopOpen(false);
+      showToast(`✅ ${product.label} gutgeschrieben`);
+    });
+  }
+
+  if (loadError) {
+    return (
+      <div className="mx-4 mt-8 rounded-2xl border border-surface-border bg-surface-card p-5 text-center text-sm text-gray-300">
+        <p className="font-semibold text-rose-300">Spiel konnte nicht geladen werden</p>
+        <p className="mt-2 text-gray-400">{loadError}</p>
+        <p className="mt-2 text-xs text-gray-500">
+          Der Spielstand liegt jetzt serverseitig. Prüfe, ob{" "}
+          <code>SUPABASE_SERVICE_ROLE_KEY</code> gesetzt und die Migration{" "}
+          <code>0002_game.sql</code> ausgeführt ist.
+        </p>
+      </div>
+    );
   }
 
   if (!state) {
@@ -349,17 +371,17 @@ export default function CoinMasterGame() {
       </div>
 
       {/* ---------- Slot-Maschine ---------- */}
-      <div className="card bg-gradient-to-b from-[#0e141b] to-surface-card">
+      <div className="card bg-gradient-to-b from-[#241a2e] to-surface-card">
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-bold text-yellow-300">
+          <span className="text-sm font-bold text-amber-300">
             {village.emoji} {village.name} · Dorf {state.villageIndex + 1}
           </span>
           <button
             onClick={claimDaily}
-            disabled={!dailyReady}
+            disabled={!dailyReady || pending}
             className={`chip ${
               dailyReady
-                ? "animate-pulse bg-yellow-500/20 text-yellow-300"
+                ? "animate-pulse bg-amber-500/20 text-amber-300"
                 : "bg-gray-500/10 text-gray-500"
             }`}
           >
@@ -367,32 +389,25 @@ export default function CoinMasterGame() {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-yellow-500/40 bg-[#0a0e13] p-3">
+        <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-amber-500/40 bg-[#120d17] p-3">
           {reels.map((sym, i) => (
             <Reel key={i} symbol={sym} spinning={spinningReels[i]} />
           ))}
         </div>
 
-        <div className="mt-2 min-h-[1.5rem] text-center text-sm font-semibold text-yellow-300">
-          {toast ?? " "}
+        <div className="mt-2 min-h-[1.5rem] text-center text-sm font-semibold text-amber-300">
+          {toast ?? " "}
         </div>
 
         <div className="mt-1 flex items-center gap-2">
-          <button
-            onClick={() => {
-              const idx = BET_STEPS.indexOf(state.bet);
-              setState({ ...state, bet: BET_STEPS[(idx + 1) % BET_STEPS.length] });
-            }}
-            disabled={busy}
-            className="btn-ghost shrink-0"
-          >
+          <button onClick={cycleBet} disabled={busy || pending} className="btn-ghost shrink-0">
             <ArrowLeftRight size={16} />
             Einsatz x{state.bet}
           </button>
           <button
             onClick={doSpin}
-            disabled={busy || state.spins < state.bet || overlay !== null}
-            className="btn flex-1 bg-gradient-to-b from-yellow-400 to-yellow-600 text-base font-extrabold text-yellow-950 shadow-lg shadow-yellow-900/40 disabled:opacity-40"
+            disabled={busy || pending || state.spins < state.bet || overlay !== null}
+            className="btn flex-1 bg-gradient-to-b from-amber-400 to-amber-600 text-base font-extrabold text-amber-950 shadow-lg shadow-amber-900/40 disabled:opacity-40"
           >
             <Zap size={18} />
             {state.spins < state.bet ? "Keine Spins" : busy ? "…" : "DREHEN"}
@@ -428,13 +443,13 @@ export default function CoinMasterGame() {
                   <p className="font-medium">{item.name}</p>
                   <p className="text-xs text-gray-400">
                     {st === "built" && (
-                      <span className="text-green-300">
+                      <span className="text-emerald-300">
                         <Star size={11} className="mr-0.5 inline" />
                         Gebaut
                       </span>
                     )}
                     {st === "damaged" && (
-                      <span className="text-red-300">Zerstört – Reparatur {fmt(cost)}</span>
+                      <span className="text-rose-300">Zerstört – Reparatur {fmt(cost)}</span>
                     )}
                     {st === "none" && <>Kosten: {fmt(cost)} 🪙</>}
                   </p>
@@ -442,11 +457,11 @@ export default function CoinMasterGame() {
                 {st !== "built" && (
                   <button
                     onClick={() => buildOrRepair(slot)}
-                    disabled={state.coins < cost}
+                    disabled={state.coins < cost || pending}
                     className={`btn shrink-0 px-3 py-1.5 text-xs ${
                       st === "damaged"
-                        ? "bg-red-500/20 text-red-300 disabled:opacity-40"
-                        : "bg-green-500/20 text-green-300 disabled:opacity-40"
+                        ? "bg-rose-500/20 text-rose-300 disabled:opacity-40"
+                        : "bg-emerald-500/20 text-emerald-300 disabled:opacity-40"
                     }`}
                   >
                     {st === "damaged" ? "Reparieren" : "Bauen"}
@@ -458,13 +473,17 @@ export default function CoinMasterGame() {
         </div>
       </section>
 
-      {/* ---------- Karten & Truhen / Reset ---------- */}
+      {/* ---------- Karten & Truhen / Shop / Reset ---------- */}
       <div className="mt-4 flex gap-2">
         <button onClick={() => setCardsOpen(true)} className="btn-ghost flex-1">
           <Layers size={16} />
-          Karten &amp; Truhen
+          Karten
         </button>
-        <button onClick={resetGame} className="btn-ghost shrink-0 text-gray-500" aria-label="Zurücksetzen">
+        <button onClick={openShop} className="btn-ghost flex-1">
+          <ShoppingBag size={16} />
+          Shop
+        </button>
+        <button onClick={resetGame} disabled={pending} className="btn-ghost shrink-0 text-gray-500" aria-label="Zurücksetzen">
           <RotateCcw size={16} />
         </button>
       </div>
@@ -479,7 +498,7 @@ export default function CoinMasterGame() {
           <h3 className="text-lg font-extrabold">🔨 Angriff!</h3>
           <p className="mt-1 text-sm text-gray-300">
             Greife das Dorf von{" "}
-            <span className="font-semibold text-yellow-300">
+            <span className="font-semibold text-amber-300">
               {overlay.setup.enemy.emoji} {overlay.setup.enemy.name}
             </span>{" "}
             an – tippe ein Gebäude an!
@@ -492,7 +511,7 @@ export default function CoinMasterGame() {
                 disabled={overlay.smashed !== null}
                 className={`flex aspect-square items-center justify-center rounded-xl border text-3xl transition active:scale-90 ${
                   overlay.smashed === i
-                    ? "border-red-500 bg-red-500/20"
+                    ? "border-rose-500 bg-rose-500/20"
                     : "border-surface-border bg-surface"
                 }`}
               >
@@ -503,17 +522,17 @@ export default function CoinMasterGame() {
           {overlay.smashed !== null && (
             <div className="mt-4 text-center">
               {overlay.setup.blocked ? (
-                <p className="font-semibold text-blue-300">
+                <p className="font-semibold text-sky-300">
                   Geblockt! {overlay.setup.enemy.name} hatte ein Schild.
                   <br />
                   Trostpreis: {fmt(overlay.setup.rewardBlocked)} 🪙
                 </p>
               ) : (
-                <p className="font-semibold text-green-300">
+                <p className="font-semibold text-emerald-300">
                   Volltreffer! Beute: {fmt(overlay.setup.rewardSuccess)} 🪙
                 </p>
               )}
-              <button onClick={collectAttack} className="btn-primary mt-3 w-full">
+              <button onClick={() => setOverlay(null)} className="btn-primary mt-3 w-full">
                 Einsammeln
               </button>
             </div>
@@ -526,32 +545,33 @@ export default function CoinMasterGame() {
           <h3 className="text-lg font-extrabold">🐷 Raid!</h3>
           <p className="mt-1 text-sm text-gray-300">
             Du überfällst{" "}
-            <span className="font-semibold text-yellow-300">
-              {overlay.setup.enemy.emoji} {overlay.setup.enemy.name}
+            <span className="font-semibold text-amber-300">
+              {overlay.enemy.emoji} {overlay.enemy.name}
             </span>
-            ! Grabe an <b>3 von 4</b> Stellen nach dem Versteck.
+            ! Grabe die <b>3 Verstecke</b> aus.
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {overlay.setup.holes.map((amount, i) => {
-              const dug = overlay.dug.includes(i);
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {overlay.dug.map((holeIndex) => {
+              const shown = overlay.revealed.includes(holeIndex);
+              const amount = overlay.holes[holeIndex];
               return (
                 <button
-                  key={i}
-                  onClick={() => dig(i)}
-                  disabled={dug || overlay.dug.length >= 3}
+                  key={holeIndex}
+                  onClick={() => reveal(holeIndex)}
+                  disabled={shown}
                   className={`flex h-20 flex-col items-center justify-center rounded-xl border text-2xl transition active:scale-95 ${
-                    dug
+                    shown
                       ? amount > 0
-                        ? "border-yellow-500 bg-yellow-500/15"
+                        ? "border-amber-500 bg-amber-500/15"
                         : "border-surface-border bg-surface opacity-60"
-                      : "border-dashed border-yellow-500/50 bg-surface"
+                      : "border-dashed border-amber-500/50 bg-surface"
                   }`}
                 >
-                  {dug ? (
+                  {shown ? (
                     amount > 0 ? (
                       <>
                         💰
-                        <span className="text-sm font-bold text-yellow-300">+{fmt(amount)}</span>
+                        <span className="text-sm font-bold text-amber-300">+{fmt(amount)}</span>
                       </>
                     ) : (
                       <>
@@ -566,21 +586,21 @@ export default function CoinMasterGame() {
               );
             })}
           </div>
-          {overlay.dug.length >= 3 && (
-            <button onClick={collectRaid} className="btn-primary mt-4 w-full">
+          {overlay.revealed.length >= overlay.dug.length && (
+            <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Beute einsammeln (
-              {fmt(overlay.dug.reduce((s, h) => s + overlay.setup.holes[h], 0))} 🪙)
+              {fmt(overlay.dug.reduce((s, h) => s + overlay.holes[h], 0))} 🪙)
             </button>
           )}
         </GameOverlay>
       )}
 
-      {overlay?.type === "daily" && overlay.reward && (
+      {overlay?.type === "daily" && (
         <GameOverlay onClose={() => setOverlay(null)}>
           <div className="py-4 text-center">
             <div className="text-5xl">{overlay.reward.emoji}</div>
             <h3 className="mt-2 text-lg font-extrabold">Tagesbonus!</h3>
-            <p className="mt-1 text-yellow-300">{overlay.reward.label}</p>
+            <p className="mt-1 text-amber-300">{overlay.reward.label}</p>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Super!
             </button>
@@ -603,7 +623,7 @@ export default function CoinMasterGame() {
                 <span className="mt-1 w-full truncate text-center text-[10px] text-gray-300">
                   {c.name}
                 </span>
-                <span className="text-[10px] text-yellow-300">{"★".repeat(c.rarity)}</span>
+                <span className="text-[10px] text-amber-300">{"★".repeat(c.rarity)}</span>
               </div>
             ))}
           </div>
@@ -623,9 +643,9 @@ export default function CoinMasterGame() {
                 <p className="text-sm">
                   <b>{n.enemy.name}</b> hat dich angegriffen –{" "}
                   {n.blockedByShield ? (
-                    <span className="text-blue-300">dein Schild hat gehalten! 🛡️</span>
+                    <span className="text-sky-300">dein Schild hat gehalten! 🛡️</span>
                   ) : (
-                    <span className="text-red-300">
+                    <span className="text-rose-300">
                       {village.items[n.damagedSlot]?.name ?? "ein Gebäude"} wurde zerstört! 💥
                     </span>
                   )}
@@ -645,8 +665,8 @@ export default function CoinMasterGame() {
             <div className="text-5xl">🎉</div>
             <h3 className="mt-2 text-lg font-extrabold">{overlay.name} abgeschlossen!</h3>
             <p className="mt-1 text-sm text-gray-300">
-              Belohnung: <b className="text-yellow-300">+{overlay.rewardSpins} Spins</b> und{" "}
-              <b className="text-yellow-300">+{fmt(overlay.rewardCoins)} Münzen</b>
+              Belohnung: <b className="text-amber-300">+{overlay.rewardSpins} Spins</b> und{" "}
+              <b className="text-amber-300">+{fmt(overlay.rewardCoins)} Münzen</b>
             </p>
             <p className="mt-2 text-sm text-gray-400">
               Weiter geht&apos;s in: {VILLAGES[state.villageIndex].emoji}{" "}
@@ -667,8 +687,8 @@ export default function CoinMasterGame() {
               Set „{overlay.set.name}“ komplett!
             </h3>
             <p className="mt-1 text-sm text-gray-300">
-              Belohnung: <b className="text-yellow-300">+{overlay.set.rewardSpins} Spins</b> und{" "}
-              <b className="text-yellow-300">+{fmt(overlay.set.rewardCoins)} Münzen</b>
+              Belohnung: <b className="text-amber-300">+{overlay.set.rewardSpins} Spins</b> und{" "}
+              <b className="text-amber-300">+{fmt(overlay.set.rewardCoins)} Münzen</b>
             </p>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Stark!
@@ -689,13 +709,13 @@ export default function CoinMasterGame() {
                   setCardsOpen(false);
                   buyChest(chest);
                 }}
-                disabled={state.coins < cost}
+                disabled={state.coins < cost || pending}
                 className="card flex flex-col items-center py-3 transition active:scale-95 disabled:opacity-40"
               >
                 <span className="text-3xl">{chest.emoji}</span>
                 <span className="mt-1 text-xs font-semibold">{chest.name}</span>
                 <span className="text-[10px] text-gray-400">{chest.cardCount} Karten</span>
-                <span className="mt-1 text-xs font-bold text-yellow-300">{fmt(cost)} 🪙</span>
+                <span className="mt-1 text-xs font-bold text-amber-300">{fmt(cost)} 🪙</span>
               </button>
             );
           })}
@@ -710,7 +730,7 @@ export default function CoinMasterGame() {
                 <div className="mb-1.5 flex items-center justify-between text-sm">
                   <span className="font-semibold">
                     {set.emoji} {set.name}{" "}
-                    {done && <span className="text-green-300">✓</span>}
+                    {done && <span className="text-emerald-300">✓</span>}
                   </span>
                   <span className="text-gray-400">
                     {owned}/{set.cards.length} · +{set.rewardSpins} ⚡
@@ -724,7 +744,7 @@ export default function CoinMasterGame() {
                         key={c.id}
                         className={`relative flex aspect-[3/4] flex-col items-center justify-center rounded-lg border text-xl ${
                           count > 0
-                            ? "border-yellow-500/40 bg-yellow-500/10"
+                            ? "border-amber-500/40 bg-amber-500/10"
                             : "border-surface-border bg-surface opacity-40"
                         }`}
                         title={`${c.name} (${"★".repeat(c.rarity)})`}
@@ -743,6 +763,61 @@ export default function CoinMasterGame() {
             );
           })}
         </div>
+      </Sheet>
+
+      {/* ---------- Shop-Sheet ---------- */}
+      <Sheet open={shopOpen} onClose={() => setShopOpen(false)} title="Shop">
+        {/* Rewarded Loop (gedeckelte Gratis-Belohnung) */}
+        <div className="card mb-4 flex items-center gap-3 py-3">
+          <span className="text-3xl">🎬</span>
+          <div className="flex-1">
+            <p className="font-semibold">Gratis-Belohnung</p>
+            <p className="text-xs text-gray-400">
+              {shop
+                ? `+${fmt(10_000)} Münzen & +2 Spins · ${shop.reward.remaining}/${shop.reward.cap} heute übrig`
+                : "…"}
+            </p>
+          </div>
+          <button
+            onClick={claimReward}
+            disabled={pending || !shop || shop.reward.remaining <= 0}
+            className="btn shrink-0 bg-emerald-500/20 px-3 py-1.5 text-xs text-emerald-300 disabled:opacity-40"
+          >
+            {shop && shop.reward.remaining <= 0 ? "Morgen wieder" : "Abholen"}
+          </button>
+        </div>
+
+        {/* Kauf-Produkte */}
+        <div className="space-y-2">
+          {(shop?.products ?? []).map((product) => {
+            const owned = shop?.ownedOnce.includes(product.id) ?? false;
+            return (
+              <div key={product.id} className="card flex items-center gap-3 py-3">
+                <div className="flex-1">
+                  <p className="font-medium">
+                    {product.label}
+                    {product.once && (
+                      <span className="ml-1 rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">
+                        einmalig
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-400">{product.description}</p>
+                </div>
+                <button
+                  onClick={() => buyProduct(product)}
+                  disabled={pending || owned}
+                  className="btn shrink-0 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-40"
+                >
+                  {owned ? "Gekauft" : `${(product.priceCents / 100).toFixed(2).replace(".", ",")} €`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-4 text-center text-[11px] text-gray-500">
+          Käufe werden erst mit angebundenem Zahlungsanbieter aktiv.
+        </p>
       </Sheet>
     </div>
   );
@@ -772,7 +847,7 @@ function Reel({ symbol, spinning }: { symbol: SlotSymbol; spinning: boolean }) {
   }, [spinning]);
   return (
     <div
-      className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-b from-[#141a22] to-[#0e141b] text-5xl ${
+      className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-b from-[#2a2033] to-[#1a1320] text-5xl ${
         spinning ? "blur-[2px]" : ""
       }`}
     >
