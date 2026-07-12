@@ -1,37 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useState } from "react";
 
-/**
- * Generischer Hook für eine Tabelle: lädt die Zeilen des aktuellen Nutzers
- * und stellt insert/update/remove bereit (mit automatischem Refresh).
- */
-export function useTable<T extends { id: string }>(
+function storageKey(table: string) {
+  return `markt_${table}`;
+}
+
+function loadRows<T>(table: string): T[] {
+  try {
+    const raw = localStorage.getItem(storageKey(table));
+    return raw ? (JSON.parse(raw) as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRows<T>(table: string, rows: T[]) {
+  localStorage.setItem(storageKey(table), JSON.stringify(rows));
+}
+
+export function useTable<T extends { id: string; created_at: string }>(
   table: string,
   options?: { orderBy?: string; ascending?: boolean },
 ) {
   const orderBy = options?.orderBy ?? "created_at";
   const ascending = options?.ascending ?? false;
 
-  const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .order(orderBy, { ascending });
-    if (error) setError(error.message);
-    else {
-      setRows((data ?? []) as T[]);
-      setError(null);
-    }
+  const refresh = useCallback(() => {
+    const all = loadRows<T>(table);
+    const sorted = [...all].sort((a, b) => {
+      const av = String((a as Record<string, unknown>)[orderBy] ?? "");
+      const bv = String((b as Record<string, unknown>)[orderBy] ?? "");
+      return ascending ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    setRows(sorted);
     setLoading(false);
-  }, [supabase, table, orderBy, ascending]);
+  }, [table, orderBy, ascending]);
 
   useEffect(() => {
     refresh();
@@ -39,35 +46,36 @@ export function useTable<T extends { id: string }>(
 
   const insert = useCallback(
     async (values: Record<string, unknown>) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      const { error } = await supabase
-        .from(table)
-        .insert({ ...values, user_id: user?.id });
-      if (error) throw error;
-      await refresh();
+      const all = loadRows<T>(table);
+      const newRow = {
+        ...values,
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        user_id: "local",
+      } as unknown as T;
+      saveRows(table, [...all, newRow]);
+      refresh();
     },
-    [supabase, table, refresh],
+    [table, refresh],
   );
 
   const update = useCallback(
     async (id: string, values: Record<string, unknown>) => {
-      const { error } = await supabase.from(table).update(values).eq("id", id);
-      if (error) throw error;
-      await refresh();
+      const all = loadRows<T>(table);
+      saveRows(table, all.map((r) => (r.id === id ? { ...r, ...values } : r)));
+      refresh();
     },
-    [supabase, table, refresh],
+    [table, refresh],
   );
 
   const remove = useCallback(
     async (id: string) => {
-      const { error } = await supabase.from(table).delete().eq("id", id);
-      if (error) throw error;
-      await refresh();
+      const all = loadRows<T>(table);
+      saveRows(table, all.filter((r) => r.id !== id));
+      refresh();
     },
-    [supabase, table, refresh],
+    [table, refresh],
   );
 
-  return { rows, loading, error, refresh, insert, update, remove };
+  return { rows, loading, error: null, refresh, insert, update, remove };
 }

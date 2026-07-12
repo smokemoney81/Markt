@@ -1,8 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useTable } from "@/lib/useTable";
 import { euro, dateTime, bumpDue } from "@/lib/format";
 import type { Ad, Appointment, Contact, Transaction } from "@/lib/types";
@@ -11,14 +9,12 @@ import {
   Users,
   CalendarDays,
   Wallet,
-  LogOut,
   AlertTriangle,
   ChevronRight,
   TrendingUp,
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const router = useRouter();
   const ads = useTable<Ad>("ads");
   const contacts = useTable<Contact>("contacts");
   const appts = useTable<Appointment>("appointments", {
@@ -26,12 +22,6 @@ export default function DashboardPage() {
     ascending: true,
   });
   const tx = useTable<Transaction>("transactions");
-
-  async function logout() {
-    await createClient().auth.signOut();
-    router.replace("/login");
-    router.refresh();
-  }
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -68,18 +58,9 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <header className="safe-top flex items-center justify-between px-4 pb-2 pt-5">
-        <div>
-          <p className="text-sm text-gray-400">Willkommen zurück 💗</p>
-          <h1 className="text-2xl font-extrabold tracking-tight">Dashboard</h1>
-        </div>
-        <button
-          onClick={logout}
-          className="rounded-full border border-surface-border p-2.5 text-gray-300 hover:bg-surface-border"
-          aria-label="Abmelden"
-        >
-          <LogOut size={18} />
-        </button>
+      <header className="safe-top px-4 pb-2 pt-5">
+        <p className="text-sm text-gray-400">Willkommen zurück 💗</p>
+        <h1 className="text-2xl font-extrabold tracking-tight">Dashboard</h1>
       </header>
 
       <div className="space-y-4 px-4">
