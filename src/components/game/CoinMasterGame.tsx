@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   Layers,
   RotateCcw,
+  ShoppingBag,
   Star,
   X,
   Zap,
@@ -37,6 +38,7 @@ import {
 import * as api from "@/lib/game/api";
 import { GameApiError } from "@/lib/game/api";
 import type { ActionResponse } from "@/lib/game/server";
+import type { ShopOverview, ShopProduct } from "@/lib/game/shop";
 
 const SYMBOL_EMOJI: Record<SlotSymbol, string> = {
   coin: "🪙",
@@ -72,6 +74,8 @@ export default function CoinMasterGame() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shop, setShop] = useState<ShopOverview | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const busy = spinningReels.some(Boolean);
   const timeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -268,6 +272,34 @@ export default function CoinMasterGame() {
     });
   }
 
+  // ----- Shop / Monetarisierung -----
+  function openShop() {
+    setShopOpen(true);
+    api.fetchShop().then(setShop).catch((e) => showToast(errMsg(e)));
+  }
+
+  async function claimReward() {
+    await run(async () => {
+      const res = await api.claimReward();
+      setState(res.state);
+      setShop((s) => (s ? { ...s, reward: res.status } : s));
+      const parts = [
+        res.grant.coins ? `+${fmt(res.grant.coins)} Münzen` : null,
+        res.grant.spins ? `+${res.grant.spins} Spins` : null,
+      ].filter(Boolean);
+      showToast(`🎬 Belohnung: ${parts.join(" · ")}`);
+    });
+  }
+
+  async function buyProduct(product: ShopProduct) {
+    await run(async () => {
+      const res = await api.purchase(product.id);
+      setState(res.state);
+      setShopOpen(false);
+      showToast(`✅ ${product.label} gutgeschrieben`);
+    });
+  }
+
   if (loadError) {
     return (
       <div className="mx-4 mt-8 rounded-2xl border border-surface-border bg-surface-card p-5 text-center text-sm text-gray-300">
@@ -418,11 +450,15 @@ export default function CoinMasterGame() {
         </div>
       </section>
 
-      {/* ---------- Karten & Truhen / Reset ---------- */}
+      {/* ---------- Karten & Truhen / Shop / Reset ---------- */}
       <div className="mt-4 flex gap-2">
         <button onClick={() => setCardsOpen(true)} className="btn-ghost flex-1">
           <Layers size={16} />
-          Karten &amp; Truhen
+          Karten
+        </button>
+        <button onClick={openShop} className="btn-ghost flex-1">
+          <ShoppingBag size={16} />
+          Shop
         </button>
         <button onClick={resetGame} disabled={pending} className="btn-ghost shrink-0 text-gray-500" aria-label="Zurücksetzen">
           <RotateCcw size={16} />
@@ -704,6 +740,61 @@ export default function CoinMasterGame() {
             );
           })}
         </div>
+      </Sheet>
+
+      {/* ---------- Shop-Sheet ---------- */}
+      <Sheet open={shopOpen} onClose={() => setShopOpen(false)} title="Shop">
+        {/* Rewarded Loop (gedeckelte Gratis-Belohnung) */}
+        <div className="card mb-4 flex items-center gap-3 py-3">
+          <span className="text-3xl">🎬</span>
+          <div className="flex-1">
+            <p className="font-semibold">Gratis-Belohnung</p>
+            <p className="text-xs text-gray-400">
+              {shop
+                ? `+${fmt(10_000)} Münzen & +2 Spins · ${shop.reward.remaining}/${shop.reward.cap} heute übrig`
+                : "…"}
+            </p>
+          </div>
+          <button
+            onClick={claimReward}
+            disabled={pending || !shop || shop.reward.remaining <= 0}
+            className="btn shrink-0 bg-emerald-500/20 px-3 py-1.5 text-xs text-emerald-300 disabled:opacity-40"
+          >
+            {shop && shop.reward.remaining <= 0 ? "Morgen wieder" : "Abholen"}
+          </button>
+        </div>
+
+        {/* Kauf-Produkte */}
+        <div className="space-y-2">
+          {(shop?.products ?? []).map((product) => {
+            const owned = shop?.ownedOnce.includes(product.id) ?? false;
+            return (
+              <div key={product.id} className="card flex items-center gap-3 py-3">
+                <div className="flex-1">
+                  <p className="font-medium">
+                    {product.label}
+                    {product.once && (
+                      <span className="ml-1 rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">
+                        einmalig
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-400">{product.description}</p>
+                </div>
+                <button
+                  onClick={() => buyProduct(product)}
+                  disabled={pending || owned}
+                  className="btn shrink-0 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-40"
+                >
+                  {owned ? "Gekauft" : `${(product.priceCents / 100).toFixed(2).replace(".", ",")} €`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-4 text-center text-[11px] text-gray-500">
+          Käufe werden erst mit angebundenem Zahlungsanbieter aktiv.
+        </p>
       </Sheet>
     </div>
   );
