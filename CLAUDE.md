@@ -67,11 +67,13 @@ src/
       server.ts       # serverseitige Anwendung + Persistenz derselben Logik
       shop.ts         # Monetarisierung (Katalog, Rewarded Loop, Käufe)
       stripe.ts       # Stripe-Client (server-only) für den Kauf-Flow
+      analytics.ts    # KPI-Aggregat (Betreiber) + Admin-Allowlist
       api.ts          # Client-Anbindung an die Spiel-Routen
     types.ts, format.ts, useTable.ts
 supabase/migrations/0001_init.sql   # Dashboard-Schema + RLS + Storage-Bucket
 supabase/migrations/0002_game.sql   # Spiel-Ökonomie (game_state, game_spin_log)
 supabase/migrations/0003_shop.sql   # Monetarisierung (game_reward_log, game_purchases)
+supabase/migrations/0004_analytics.sql  # KPI-Aggregat-Funktion game_analytics()
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool
@@ -136,6 +138,17 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
   (kein „free money"). Stripe-Keys sind server-only (`.env.example`).
 - **Middleware:** `/api`-Routen werden nicht auf `/login` umgeleitet (der
   Webhook hat keine Session) – sie prüfen Auth selbst.
+
+### Analytics (Betreiber-KPIs)
+
+- **Seite:** `/spiel/analytics` (Server-Component). Zeigt Aggregat-KPIs über
+  **alle** Spieler: Umsatz, ARPPU/ARPU, Conversion, Aktive (1/7/30 T), Münzen
+  im Umlauf, Faucet, Spin-Ergebnis-Verteilung.
+- **Berechnung:** Postgres-Funktion `game_analytics()` (Migration
+  `0004_analytics.sql`), aufgerufen über den Service-Role-Client.
+- **Zugriff:** nur E-Mails aus `GAME_ADMIN_EMAILS` (kommagetrennt). Andere
+  sehen „Kein Zugriff". Die Seite aggregiert über alle Nutzer – niemals ohne
+  diesen Gate für normale Spieler öffnen.
 
 ## Hinweis zu den hochgeladenen Design-Dokumenten
 
