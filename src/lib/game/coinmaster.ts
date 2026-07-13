@@ -14,6 +14,74 @@ export const REPAIR_FACTOR = 0.3; // Reparatur kostet 30 % des Baupreises
 export const START_SPINS = 50;
 export const START_COINS = 25_000;
 
+// Phase 5: Battle Pass
+export const BATTLE_PASS_TIERS = 5;
+export const BATTLE_PASS_XP_PER_TIER = 100; // XP für nächstes Tier
+export const XP_PER_SPIN = 10; // XP gained per spin
+
+// Phase 8: Weekly Challenges (5 challenges)
+export const WEEKLY_CHALLENGES = [
+  { id: "spin_100", name: "100 Spins", target: 100, reward: 50 },
+  { id: "build_5", name: "5 Gebäude fertigstellen", target: 5, reward: 200 },
+  { id: "win_raid", name: "1 Raid gewinnen", target: 1, reward: 300 },
+  { id: "collect_5k", name: "5000 Münzen sammeln", target: 5000, reward: 100 },
+  { id: "max_shield", name: "Max. Schilde sammeln", target: 3, reward: 250 },
+];
+
+// Phase 9: Achievements (12 slots)
+export const ACHIEVEMENTS = [
+  { id: "first_build", name: "Baumeister", description: "Erstes Gebäude fertig" },
+  { id: "1000_spins", name: "Spinner", description: "1000 Spins total" },
+  { id: "10_dorf", name: "Himmelstürmer", description: "Alle 10 Dörfer erreicht" },
+  { id: "100_raids_won", name: "Kriegsheld", description: "100 Raids gewonnen" },
+  { id: "all_sets", name: "Sammler", description: "Alle Kartensätze vollendet" },
+  { id: "1M_coins", name: "Goldkönig", description: "1M Münzen verdient" },
+  { id: "50_daily", name: "Gewohnheit", description: "50 Tage hintereinander" },
+  { id: "jackpot_3", name: "Glückspilz", description: "3x Jackpot gewonnen" },
+  { id: "vip_30", name: "VIP-Fan", description: "30 Tage VIP" },
+  { id: "clan_10", name: "Teamplayer", description: "Clan mit 10 Mitgliedern" },
+  { id: "seasonal_2", name: "Jahresmensch", description: "2 Seasons vollendet" },
+  { id: "cosmetic_all", name: "Fashionista", description: "Alle Themes freigeschaltet" },
+];
+
+// Phase 10: Seasonal Events (4 seasons)
+export const SEASONS = [
+  { id: "spring", name: "Frühling", emoji: "🌸", durationDays: 90 },
+  { id: "summer", name: "Sommer", emoji: "☀️", durationDays: 90 },
+  { id: "autumn", name: "Herbst", emoji: "🍂", durationDays: 90 },
+  { id: "winter", name: "Winter", emoji: "❄️", durationDays: 90 },
+];
+
+// Phase 11: Cosmetics (4 themes)
+export const COSMETIC_THEMES = {
+  default: { name: "Klassisch", unlock: 0 },
+  neon: { name: "Neon", unlock: 500 }, // 500 stars
+  cyber: { name: "Cyber", unlock: 1000 },
+  mystic: { name: "Mystisch", unlock: 2000 },
+};
+
+// Phase 13: Wheel Upgrades
+export const WHEEL_UPGRADES = {
+  coin_multiplier: { name: "Münz-Multiplikator", maxLevel: 5, costPerLevel: 500 },
+  spin_rate: { name: "Schneller Spin", maxLevel: 3, costPerLevel: 300 },
+  energy_boost: { name: "Energie-Bonus", maxLevel: 4, costPerLevel: 400 },
+};
+
+// Phase 14: Daily Quests (3 quests per day)
+export const DAILY_QUESTS = [
+  { id: "daily_spin_10", name: "10 Spins", reward: 100 },
+  { id: "daily_build_1", name: "1 Gebäude bauen", reward: 200 },
+  { id: "daily_win_raid", name: "1 Raid gewinnen", reward: 150 },
+];
+
+// Phase 15: VIP Tiers
+export const VIP_TIERS = [
+  { tier: 0, name: "Keine", monthlyBonus: 0, costUSD: 0 },
+  { tier: 1, name: "Bronze", monthlyBonus: 1000, costUSD: 4.99 },
+  { tier: 2, name: "Silber", monthlyBonus: 3000, costUSD: 9.99 },
+  { tier: 3, name: "Gold", monthlyBonus: 6000, costUSD: 19.99 },
+];
+
 // ---------- Typen ----------
 
 export type SlotSymbol = "coin" | "bag" | "energy" | "hammer" | "pig" | "shield";
@@ -24,10 +92,17 @@ export type SpinOutcome =
   | { kind: "shield" }
   | { kind: "energy"; spins: number }
   | { kind: "jackpot"; coins: number }
-  | { kind: "coins"; coins: number }
+  | { kind: "coins"; coins: number; count: number }
   | { kind: "nothing" };
 
 export type ItemState = "none" | "built" | "damaged";
+
+export interface BuildJob {
+  /** Zeitstempel (ms) für die Fertigstellung. */
+  doneAt: number;
+  /** true = Reparatur (kein neuer Stern), false = Neubau. */
+  repair: boolean;
+}
 
 export type CardId = string;
 
@@ -40,6 +115,8 @@ export interface GameState {
   villageIndex: number;
   /** Zustand der 5 Dorf-Objekte des aktuellen Dorfs */
   items: ItemState[];
+  /** Laufende Bau-Timer: slot -> BuildJob (fehlend = kein aktiver Bau). */
+  itemBuilds: Record<number, BuildJob>;
   /** Karten-Besitz: cardId -> Anzahl */
   cards: Record<CardId, number>;
   /** Bereits eingelöste (komplette) Sets */
@@ -48,12 +125,41 @@ export interface GameState {
   lastRegenAt: number;
   /** Zeitstempel (ms) des letzten Tagesbonus */
   lastDailyAt: number;
+  /** Aufeinanderfolgende Tage mit eingelöstem Tagesbonus (0 = keiner). */
+  dailyStreak: number;
   /** Zeitstempel (ms) des letzten Besuchs (für Offline-Angriffe) */
   lastSeenAt: number;
   /** Statistik */
   totalSpins: number;
   attacksWon: number;
   raidsWon: number;
+  // Phase 5: Battle Pass
+  battlePassLevel: number;
+  battlePassXp: number;
+  // Phase 6: Clans
+  clanId: string | null;
+  // Phase 7: Leaderboards (read-only, wird über API geladen)
+  // Phase 8: Weekly Challenges
+  weeklyChallengeBits: number; // Bitmap für 5 Challenges
+  lastWeeklyChallengeReset: number; // Zeitstempel
+  // Phase 9: Achievements
+  achievementBits: number; // Bitmap für ~12 Achievements
+  // Phase 10: Seasonal Events
+  currentSeasonId: string;
+  seasonProgress: number;
+  // Phase 11: Cosmetics
+  selectedTheme: "default" | "neon" | "cyber" | "mystic";
+  // Phase 12: Raids (extended)
+  // Phase 13: Wheel Upgrades
+  wheelUpgrades: Record<string, number>; // upgradeName -> level
+  // Phase 14: Daily Quests
+  dailyQuestBits: number; // Bitmap für 3 Daily Quests
+  lastDailyQuestReset: number; // Zeitstempel
+  // Phase 15: VIP
+  vipTier: 0 | 1 | 2 | 3; // 0 = no VIP
+  vipExpireAt: number; // Zeitstempel (0 = keine VIP)
+  // Phase 16: Social
+  friendIds: string[]; // Array von user_ids
 }
 
 export interface VillageItem {
@@ -343,6 +449,21 @@ export function chestCost(chest: Chest, villageIndex: number): number {
   return chest.baseCost * villageScale(villageIndex);
 }
 
+/** Basis-Bauzeit in Sekunden pro Slot 0-4 (späte Slots dauern länger). */
+const BUILD_TIME_BASE_SECONDS = [8, 15, 25, 40, 60];
+
+/** Bauzeit in Sekunden für Slot im Dorf; Reparatur ist deutlich schneller. */
+export function buildDurationSeconds(
+  villageIndex: number,
+  slot: number,
+  repair = false,
+): number {
+  const base = BUILD_TIME_BASE_SECONDS[slot] ?? 30;
+  const scale = 1 + villageIndex * 0.25;
+  const repairFactor = repair ? 0.4 : 1;
+  return Math.max(1, Math.round(base * scale * repairFactor));
+}
+
 // ---------- Slot-Logik ----------
 
 /** Gewichtete Ergebnis-Tabelle (wie im Original serverseitig entschieden). */
@@ -380,9 +501,11 @@ export function rollOutcome(villageIndex: number, bet: number): SpinOutcome {
     case "jackpot":
       return { kind: "jackpot", coins: 20_000 * scale * bet };
     case "coins": {
-      // 1–3 Münzsymbole auf der Linie, jedes zahlt einzeln
+      // 1–3 Münzsymbole auf der Linie, jedes zahlt einzeln.
+      // `count` wird mitgegeben, damit die Walzen-Anzeige exakt zur
+      // Auszahlung passt (sonst würfelt die UI eine eigene Anzahl).
       const coinsShown = 1 + randInt(3);
-      return { kind: "coins", coins: coinsShown * 800 * scale * bet };
+      return { kind: "coins", coins: coinsShown * 800 * scale * bet, count: coinsShown };
     }
     default:
       return { kind: "nothing" };
@@ -405,7 +528,8 @@ export function reelsForOutcome(outcome: SpinOutcome): SlotSymbol[] {
     case "jackpot":
       return tripleOf("bag");
     case "coins":
-      return makeNonTriple(coinReels(others));
+      // Genau so viele Münzen zeigen, wie ausgezahlt werden (inkl. Dreier).
+      return coinReels(outcome.count);
     default: {
       // keine Münzen, kein Dreier
       const pool = others.filter((s) => s !== "coin");
@@ -414,11 +538,11 @@ export function reelsForOutcome(outcome: SpinOutcome): SlotSymbol[] {
   }
 }
 
-function coinReels(others: SlotSymbol[]): SlotSymbol[] {
-  // 1–3 Münzsymbole, Rest zufällige Nicht-Münz-Symbole
-  const n = 1 + randInt(3);
+function coinReels(count: number): SlotSymbol[] {
+  // Genau `count` Münzsymbole (1–3), Rest zufällige Nicht-Münz-Symbole.
+  const n = Math.min(3, Math.max(1, count));
+  const nonCoin: SlotSymbol[] = ["bag", "energy", "hammer", "pig", "shield"];
   const reels: SlotSymbol[] = [];
-  const nonCoin = others.filter((s) => s !== "coin");
   for (let i = 0; i < 3; i++) reels.push(i < n ? "coin" : pick(nonCoin));
   return shuffle(reels);
 }
@@ -504,14 +628,41 @@ export function newGame(): GameState {
     bet: 1,
     villageIndex: 0,
     items: ["none", "none", "none", "none", "none"],
+    itemBuilds: {},
     cards: {},
     completedSets: [],
     lastRegenAt: now,
     lastDailyAt: 0,
+    dailyStreak: 0,
     lastSeenAt: now,
     totalSpins: 0,
     attacksWon: 0,
     raidsWon: 0,
+    // Phase 5
+    battlePassLevel: 0,
+    battlePassXp: 0,
+    // Phase 6
+    clanId: null,
+    // Phase 8
+    weeklyChallengeBits: 0,
+    lastWeeklyChallengeReset: now,
+    // Phase 9
+    achievementBits: 0,
+    // Phase 10
+    currentSeasonId: getCurrentSeason(now),
+    seasonProgress: 0,
+    // Phase 11
+    selectedTheme: "default",
+    // Phase 13
+    wheelUpgrades: {},
+    // Phase 14
+    dailyQuestBits: 0,
+    lastDailyQuestReset: now,
+    // Phase 15
+    vipTier: 0,
+    vipExpireAt: 0,
+    // Phase 16
+    friendIds: [],
   };
 }
 
@@ -567,6 +718,71 @@ export function rollOfflineAttacks(state: GameState, now: number): { state: Game
   return { state: { ...s, lastSeenAt: now }, news };
 }
 
+// ---------- Bauzeit-Fortschritt ----------
+
+export interface BuildProgressResult {
+  state: GameState;
+  /** Slots, die durch diesen Aufruf gerade fertig wurden. */
+  completedSlots: number[];
+  /** Gesetzt, wenn dadurch das ganze Dorf abgeschlossen wurde. */
+  villageCompleted?: {
+    name: string;
+    rewardSpins: number;
+    rewardCoins: number;
+  };
+}
+
+/**
+ * Wandelt alle abgelaufenen Bau-Timer in fertige Objekte um und prüft
+ * anschließend, ob dadurch das Dorf komplettiert wurde. Wird bei jeder
+ * Server-Aktion vor der eigentlichen Logik aufgerufen (analog zu
+ * `applyRegen`), damit die Fertigstellung autoritativ und nicht
+ * client-getriggert passiert.
+ */
+export function applyBuildProgress(state: GameState, now: number): BuildProgressResult {
+  const items = [...state.items];
+  const itemBuilds: Record<number, BuildJob> = { ...state.itemBuilds };
+  const completedSlots: number[] = [];
+  let stars = state.stars;
+
+  for (const slotStr of Object.keys(itemBuilds)) {
+    const slot = Number(slotStr);
+    const job = itemBuilds[slot];
+    if (job && job.doneAt <= now) {
+      items[slot] = "built";
+      if (!job.repair) stars += 1;
+      delete itemBuilds[slot];
+      completedSlots.push(slot);
+    }
+  }
+
+  let result: GameState = { ...state, items, itemBuilds, stars };
+  let villageCompleted: BuildProgressResult["villageCompleted"];
+
+  if (
+    result.items.every((it) => it === "built") &&
+    result.villageIndex < VILLAGES.length - 1
+  ) {
+    const rewardSpins = 25;
+    const rewardCoins = 50_000 * villageScale(result.villageIndex);
+    villageCompleted = {
+      name: VILLAGES[result.villageIndex].name,
+      rewardSpins,
+      rewardCoins,
+    };
+    result = {
+      ...result,
+      villageIndex: result.villageIndex + 1,
+      items: ["none", "none", "none", "none", "none"],
+      itemBuilds: {},
+      spins: result.spins + rewardSpins,
+      coins: result.coins + rewardCoins,
+    };
+  }
+
+  return { state: result, completedSlots, villageCompleted };
+}
+
 // ---------- Tagesbonus ----------
 
 export interface DailyReward {
@@ -574,11 +790,40 @@ export interface DailyReward {
   emoji: string;
   spins: number;
   coins: number;
+  /** Angewandter Streak-Multiplikator (1, 1.5, 2, 3). */
+  multiplier: number;
+  /** Der Streak, den dieser Claim gerade markiert hat. */
+  streak: number;
 }
 
-export function rollDailyReward(villageIndex: number): DailyReward {
+/**
+ * Multiplikator basierend auf Streak-Tagen.
+ *  - Tag 1-2: 1x  (Ankommen)
+ *  - Tag 3-6: 1,5x
+ *  - Tag 7-13: 2x
+ *  - Tag 14+: 3x
+ */
+export function streakMultiplier(streak: number): number {
+  if (streak >= 14) return 3;
+  if (streak >= 7) return 2;
+  if (streak >= 3) return 1.5;
+  return 1;
+}
+
+/**
+ * Ermittelt den neuen Streak-Wert für einen Claim jetzt.
+ * Wer >48h nichts abgeholt hat, fängt wieder bei 1 an; sonst +1.
+ */
+export function nextStreak(currentStreak: number, lastDailyAt: number, now: number): number {
+  if (lastDailyAt <= 0) return 1;
+  const hoursSince = (now - lastDailyAt) / 3_600_000;
+  if (hoursSince > 48) return 1;
+  return currentStreak + 1;
+}
+
+export function rollDailyReward(villageIndex: number, streak: number): DailyReward {
   const scale = villageScale(villageIndex);
-  const options: DailyReward[] = [
+  const options: Omit<DailyReward, "multiplier" | "streak">[] = [
     { label: "10 Spins", emoji: "⚡", spins: 10, coins: 0 },
     { label: "25 Spins", emoji: "⚡", spins: 25, coins: 0 },
     { label: "50 Spins", emoji: "🌟", spins: 50, coins: 0 },
@@ -590,9 +835,178 @@ export function rollDailyReward(villageIndex: number): DailyReward {
   const weights = [30, 15, 5, 25, 17, 8];
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
+  let base = options[0];
   for (let i = 0; i < options.length; i++) {
-    if (r < weights[i]) return options[i];
+    if (r < weights[i]) {
+      base = options[i];
+      break;
+    }
     r -= weights[i];
   }
-  return options[0];
+  const multiplier = streakMultiplier(streak);
+  const spins = Math.round(base.spins * multiplier);
+  const coins = Math.round(base.coins * multiplier);
+  const label =
+    coins > 0
+      ? `${fmt(coins)} Münzen${multiplier === 1 ? "" : ` · ${multiplier}× Streak`}`
+      : `${spins} Spins${multiplier === 1 ? "" : ` · ${multiplier}× Streak`}`;
+  return { label, emoji: base.emoji, spins, coins, multiplier, streak };
+}
+
+// ========== Phase 5: Battle Pass ==========
+
+export function gainBattlePassXp(state: GameState, amount: number): GameState {
+  let xp = state.battlePassXp + amount;
+  let level = state.battlePassLevel;
+  while (xp >= BATTLE_PASS_XP_PER_TIER && level < BATTLE_PASS_TIERS) {
+    xp -= BATTLE_PASS_XP_PER_TIER;
+    level++;
+  }
+  return { ...state, battlePassXp: xp, battlePassLevel: level };
+}
+
+export function claimBattlePassReward(state: GameState, tier: number): GameState {
+  if (tier <= state.battlePassLevel) {
+    const coins = tier * 1000;
+    return { ...state, coins: state.coins + coins };
+  }
+  return state;
+}
+
+// ========== Phase 6: Clans ==========
+
+export function joinClan(state: GameState, clanId: string): GameState {
+  return { ...state, clanId };
+}
+
+export function leaveClan(state: GameState): GameState {
+  return { ...state, clanId: null };
+}
+
+// ========== Phase 8: Weekly Challenges ==========
+
+export function resetWeeklyChallenges(): { bits: number; resetAt: number } {
+  return { bits: 0, resetAt: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+}
+
+export function progressWeeklyChallenge(
+  state: GameState,
+  challengeIndex: number,
+  value: number,
+): { newBits: number; completed: boolean } {
+  const challenge = WEEKLY_CHALLENGES[challengeIndex];
+  const completed = value >= challenge.target;
+  const newBits = completed ? state.weeklyChallengeBits | (1 << challengeIndex) : state.weeklyChallengeBits;
+  return { newBits, completed };
+}
+
+// ========== Phase 9: Achievements ==========
+
+export function unlockAchievement(state: GameState, achievementIndex: number): GameState {
+  const newBits = state.achievementBits | (1 << achievementIndex);
+  return { ...state, achievementBits: newBits };
+}
+
+export function isAchievementUnlocked(state: GameState, achievementIndex: number): boolean {
+  return (state.achievementBits & (1 << achievementIndex)) !== 0;
+}
+
+// ========== Phase 10: Seasonal Events ==========
+
+export function getCurrentSeason(now: number): string {
+  const dayOfYear = Math.floor((now % (365 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000));
+  if (dayOfYear < 90) return "spring";
+  if (dayOfYear < 180) return "summer";
+  if (dayOfYear < 270) return "autumn";
+  return "winter";
+}
+
+export function getSeasonalShopItem(seasonId: string, villageIndex: number): { name: string; emoji: string; coins: number } {
+  const baseItems: Record<string, { name: string; emoji: string }> = {
+    spring: { name: "Blüten-Rune", emoji: "🌸" },
+    summer: { name: "Sonnen-Rune", emoji: "☀️" },
+    autumn: { name: "Herbst-Rune", emoji: "🍂" },
+    winter: { name: "Eis-Rune", emoji: "❄️" },
+  };
+  const base = baseItems[seasonId] || baseItems.spring;
+  const scale = villageScale(villageIndex);
+  return { ...base, coins: Math.round(5000 * scale) };
+}
+
+// ========== Phase 11: Cosmetics ==========
+
+export function canUnlockTheme(state: GameState, theme: "default" | "neon" | "cyber" | "mystic"): boolean {
+  const required = COSMETIC_THEMES[theme].unlock;
+  return state.stars >= required;
+}
+
+export function selectTheme(state: GameState, theme: "default" | "neon" | "cyber" | "mystic"): GameState {
+  if (canUnlockTheme(state, theme)) {
+    return { ...state, selectedTheme: theme };
+  }
+  return state;
+}
+
+// ========== Phase 13: Wheel Upgrades ==========
+
+export function upgradeWheel(state: GameState, upgradeKey: string, cost: number): GameState {
+  const upgrade = WHEEL_UPGRADES[upgradeKey as keyof typeof WHEEL_UPGRADES];
+  if (!upgrade || state.coins < cost) return state;
+  const level = (state.wheelUpgrades[upgradeKey] || 0) + 1;
+  if (level > upgrade.maxLevel) return state;
+  return {
+    ...state,
+    coins: state.coins - cost,
+    wheelUpgrades: { ...state.wheelUpgrades, [upgradeKey]: level },
+  };
+}
+
+export function getWheelMultiplier(state: GameState): number {
+  const level = state.wheelUpgrades["coin_multiplier"] || 0;
+  return 1 + level * 0.1;
+}
+
+// ========== Phase 14: Daily Quests ==========
+
+export function resetDailyQuests(): { bits: number; resetAt: number } {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  return { bits: 0, resetAt: tomorrow.getTime() };
+}
+
+export function completeDailyQuest(state: GameState, questIndex: number): GameState {
+  const newBits = state.dailyQuestBits | (1 << questIndex);
+  return { ...state, dailyQuestBits: newBits };
+}
+
+// ========== Phase 15: VIP ==========
+
+export function purchaseVip(state: GameState, tier: 1 | 2 | 3, durationDays: number = 30): GameState {
+  const expireAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
+  return { ...state, vipTier: tier, vipExpireAt: expireAt };
+}
+
+export function getVipBonus(state: GameState, baseCoins: number): number {
+  if (state.vipExpireAt < Date.now()) return baseCoins;
+  const tierData = VIP_TIERS[state.vipTier];
+  return baseCoins + tierData.monthlyBonus;
+}
+
+// ========== Phase 16: Social ==========
+
+export function addFriend(state: GameState, friendId: string): GameState {
+  if (!state.friendIds.includes(friendId)) {
+    return { ...state, friendIds: [...state.friendIds, friendId] };
+  }
+  return state;
+}
+
+export function removeFriend(state: GameState, friendId: string): GameState {
+  return { ...state, friendIds: state.friendIds.filter((id) => id !== friendId) };
+}
+
+export function sendGift(state: GameState, friendId: string, coins: number, spins: number): GameState {
+  // Gift wird serverseitig validiert; hier nur der Absender-State
+  return { ...state, coins: state.coins - coins, spins: state.spins - spins };
 }
