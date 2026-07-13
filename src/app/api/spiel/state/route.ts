@@ -24,8 +24,8 @@ export async function GET(): Promise<NextResponse> {
 
   try {
     const service = createServiceClient();
-    const { state, news } = await refreshState(service, user.id);
-    return NextResponse.json({ state, news });
+    const result = await refreshState(service, user.id);
+    return NextResponse.json(result);
   } catch (err) {
     console.error("Spiel-Fehler (state):", err);
     return NextResponse.json({ error: "Interner Fehler.", code: "INTERN" }, { status: 500 });

@@ -32,7 +32,14 @@ export class GameApiError extends Error {
   }
 }
 
-export async function fetchState(): Promise<{ state: GameState; news: OfflineAttackNews[] }> {
+export interface FetchStateResult {
+  state: GameState;
+  news: OfflineAttackNews[];
+  buildsCompleted?: number[];
+  villageCompleted?: { name: string; rewardSpins: number; rewardCoins: number };
+}
+
+export async function fetchState(): Promise<FetchStateResult> {
   const res = await fetch("/api/spiel/state");
   const data = await res.json();
   if (!res.ok) throw new GameApiError(data?.code ?? "FEHLER", data?.error ?? "Fehler beim Laden.");
