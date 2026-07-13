@@ -17,6 +17,8 @@ import {
   Flame,
   Star,
   ChevronRight,
+  Bell,
+  Newspaper,
 } from "lucide-react";
 import { fmt, VILLAGES, type GameState } from "@/lib/game/coinmaster";
 import * as api from "@/lib/game/api";
@@ -54,13 +56,22 @@ export default function DashboardPage() {
             Munz-Meister
           </h1>
         </div>
-        <button
-          onClick={logout}
-          className="rounded-full border border-surface-border p-2.5 text-gray-300 hover:bg-surface-border"
-          aria-label="Abmelden"
-        >
-          <LogOut size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/benachrichtigungen"
+            className="rounded-full border border-surface-border p-2.5 text-gray-300 hover:bg-surface-border"
+            aria-label="Benachrichtigungen"
+          >
+            <Bell size={18} />
+          </Link>
+          <button
+            onClick={logout}
+            className="rounded-full border border-surface-border p-2.5 text-gray-300 hover:bg-surface-border"
+            aria-label="Abmelden"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
       </header>
 
       <div className="space-y-4 px-4">
@@ -191,6 +202,7 @@ export default function DashboardPage() {
 
         {/* Weitere Features */}
         <div className="space-y-2">
+          <SmallLink href="/feed" icon={<Newspaper size={16} />} label="Aktivitats-Feed" />
           <SmallLink href="/achievements" icon={<Trophy size={16} />} label="Erfolge" />
           <SmallLink href="/challenges" icon={<Gift size={16} />} label="Wochentliche Aufgaben" />
           <SmallLink href="/seasonal" icon={<Star size={16} />} label="Saisonale Events" />

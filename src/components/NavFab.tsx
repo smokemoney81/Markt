@@ -10,7 +10,9 @@ import {
   Layers,
   Users,
   Trophy,
-  Target,
+  Newspaper,
+  Bell,
+  Settings,
   User,
   Menu,
   X,
@@ -19,12 +21,14 @@ import {
 const items = [
   { href: "/", label: "Start", icon: LayoutDashboard },
   { href: "/spiel", label: "Spiel", icon: Gamepad2 },
+  { href: "/feed", label: "Feed", icon: Newspaper },
   { href: "/shop", label: "Shop", icon: ShoppingBag },
   { href: "/karten", label: "Karten", icon: Layers },
   { href: "/freunde", label: "Freunde", icon: Users },
   { href: "/achievements", label: "Erfolge", icon: Trophy },
-  { href: "/challenges", label: "Aufgaben", icon: Target },
+  { href: "/benachrichtigungen", label: "News", icon: Bell },
   { href: "/profil", label: "Profil", icon: User },
+  { href: "/einstellungen", label: "Optionen", icon: Settings },
 ];
 
 export default function NavFab() {
