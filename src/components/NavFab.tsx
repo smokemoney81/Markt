@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
-  Megaphone,
-  Users,
-  CalendarDays,
-  Wallet,
-  Images,
+  Gem,
+  Trophy,
+  TrendingUp,
+  Calendar,
+  Target,
   Gamepad2,
   Grid3x3,
   Menu,
@@ -18,12 +18,12 @@ import {
 
 const items = [
   { href: "/", label: "Start", icon: LayoutDashboard },
-  { href: "/anzeigen", label: "Anzeigen", icon: Megaphone },
-  { href: "/kontakte", label: "Kontakte", icon: Users },
-  { href: "/termine", label: "Termine", icon: CalendarDays },
-  { href: "/finanzen", label: "Finanzen", icon: Wallet },
-  { href: "/medien", label: "Medien", icon: Images },
   { href: "/spiel", label: "Spiel", icon: Gamepad2 },
+  { href: "/vip", label: "VIP", icon: Gem },
+  { href: "/achievements", label: "Erfolge", icon: Trophy },
+  { href: "/analytics", label: "Statistik", icon: TrendingUp },
+  { href: "/seasonal", label: "Season", icon: Calendar },
+  { href: "/challenges", label: "Aufgaben", icon: Target },
   { href: "/aether", label: "Aether", icon: Grid3x3 },
 ];
 
