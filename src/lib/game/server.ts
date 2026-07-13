@@ -18,7 +18,9 @@ import {
   DAILY_BONUS_HOURS,
   MAX_SHIELDS,
   VILLAGES,
+  applyBuildProgress,
   applyRegen,
+  buildDurationSeconds,
   chestCost,
   itemCost,
   makeAttack,
@@ -33,6 +35,7 @@ import {
   shuffle,
   villageScale,
   type AttackSetup,
+  type BuildJob,
   type Card,
   type CardSet,
   type DailyReward,
@@ -45,6 +48,15 @@ import {
 
 // ---------- DB-Zeile ----------
 
+/**
+ * DB-Repräsentation eines Bau-Jobs: doneAt als ISO-Timestamp (nicht ms),
+ * damit die Zeile im Supabase-Dashboard lesbar bleibt.
+ */
+interface BuildJobRow {
+  doneAt: string;
+  repair: boolean;
+}
+
 interface GameRow {
   user_id: string;
   coins: number;
@@ -54,6 +66,7 @@ interface GameRow {
   bet: number;
   village_index: number;
   items: ItemState[];
+  item_builds: Record<string, BuildJobRow> | null;
   cards: Record<string, number>;
   completed_sets: string[];
   last_regen_at: string;
@@ -69,6 +82,26 @@ const ms = (iso: string | null): number => (iso ? new Date(iso).getTime() : 0);
 const iso = (millis: number): string | null =>
   millis > 0 ? new Date(millis).toISOString() : null;
 
+function buildsFromRow(raw: Record<string, BuildJobRow> | null | undefined): Record<number, BuildJob> {
+  if (!raw) return {};
+  const out: Record<number, BuildJob> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const slot = Number(k);
+    if (!Number.isInteger(slot)) continue;
+    out[slot] = { doneAt: ms(v.doneAt), repair: !!v.repair };
+  }
+  return out;
+}
+
+function buildsToRow(builds: Record<number, BuildJob>): Record<string, BuildJobRow> {
+  const out: Record<string, BuildJobRow> = {};
+  for (const [k, v] of Object.entries(builds)) {
+    const isoTime = iso(v.doneAt);
+    if (isoTime) out[k] = { doneAt: isoTime, repair: v.repair };
+  }
+  return out;
+}
+
 function rowToState(row: GameRow): GameState {
   return {
     coins: Number(row.coins),
@@ -78,6 +111,7 @@ function rowToState(row: GameRow): GameState {
     bet: row.bet,
     villageIndex: row.village_index,
     items: row.items,
+    itemBuilds: buildsFromRow(row.item_builds),
     cards: row.cards,
     completedSets: row.completed_sets,
     lastRegenAt: ms(row.last_regen_at),
@@ -100,6 +134,7 @@ function stateToRow(state: GameState) {
     bet: state.bet,
     village_index: state.villageIndex,
     items: state.items,
+    item_builds: buildsToRow(state.itemBuilds),
     cards: state.cards,
     completed_sets: state.completedSets,
     last_regen_at: iso(state.lastRegenAt),
@@ -136,21 +171,32 @@ export async function loadOrCreateState(
   return fresh;
 }
 
+export interface RefreshResult {
+  state: GameState;
+  news: OfflineAttackNews[];
+  buildsCompleted?: number[];
+  villageCompleted?: { name: string; rewardSpins: number; rewardCoins: number };
+}
+
 /**
- * Lädt den Stand und wendet beim Öffnen Regeneration + Offline-Angriffe an
- * (wie der Client bisher beim Start). Persistiert das Ergebnis und liefert
- * zusätzlich die Angriffs-News für die UI zurück.
+ * Lädt den Stand und wendet beim Öffnen Regeneration, Bau-Fortschritt und
+ * Offline-Angriffe an. Persistiert das Ergebnis und liefert zusätzlich die
+ * Angriffs-News sowie eventuelle Bau-Fertigstellungen für die UI zurück.
  */
-export async function refreshState(
-  db: SupabaseClient,
-  userId: string,
-): Promise<{ state: GameState; news: OfflineAttackNews[] }> {
+export async function refreshState(db: SupabaseClient, userId: string): Promise<RefreshResult> {
   const now = Date.now();
   let state = await loadOrCreateState(db, userId);
   state = applyRegen(state, now);
+  const progress = applyBuildProgress(state, now);
+  state = progress.state;
   const { state: afterAttacks, news } = rollOfflineAttacks(state, now);
   await persistState(db, userId, afterAttacks);
-  return { state: afterAttacks, news };
+  return {
+    state: afterAttacks,
+    news,
+    ...(progress.completedSlots.length > 0 && { buildsCompleted: progress.completedSlots }),
+    ...(progress.villageCompleted && { villageCompleted: progress.villageCompleted }),
+  };
 }
 
 /** Schreibt den kompletten State autoritativ zurück. */
@@ -273,54 +319,45 @@ export function performSpin(input: GameState, betInput: number): { state: GameSt
 
 export interface BuildResult {
   slot: number;
-  repaired: boolean;
-  /** Gesetzt, wenn durch den Bau ein Dorf abgeschlossen wurde. */
-  villageCompleted?: { name: string; rewardSpins: number; rewardCoins: number };
+  repair: boolean;
+  /** Fertigstellungs-Zeitstempel (ms) für Client-Countdown. */
+  doneAt: number;
 }
 
-/** Baut oder repariert ein Dorf-Objekt und steigt ggf. ins nächste Dorf auf. */
-export function performBuild(input: GameState, slot: number): { state: GameState; result: BuildResult } {
+/**
+ * Startet einen Bau-Timer für den Slot. Die tatsächliche Umwandlung in
+ * "built" (inkl. Sterne + evtl. Dorf-Aufstieg) passiert erst, wenn die
+ * Bauzeit abgelaufen ist – autoritativ in `applyBuildProgress` bei der
+ * nächsten Aktion. So kann der Client den Fortschritt nicht manipulieren.
+ */
+export function performBuild(
+  input: GameState,
+  slot: number,
+  now: number,
+): { state: GameState; result: BuildResult } {
   if (slot < 0 || slot >= input.items.length) {
     throw new GameError("UNGUELTIGER_SLOT", "Ungültiger Bauplatz.");
+  }
+  if (input.itemBuilds[slot]) {
+    throw new GameError("BEREITS_IM_BAU", "Slot wird bereits gebaut.");
   }
   const current = input.items[slot];
   if (current === "built") {
     throw new GameError("BEREITS_GEBAUT", "Objekt ist bereits gebaut.");
   }
-  const repaired = current === "damaged";
-  const cost = repaired ? repairCost(input.villageIndex, slot) : itemCost(input.villageIndex, slot);
+  const repair = current === "damaged";
+  const cost = repair ? repairCost(input.villageIndex, slot) : itemCost(input.villageIndex, slot);
   if (input.coins < cost) {
     throw new GameError("NICHT_GENUG_COINS", "Nicht genügend Münzen.");
   }
 
-  const items = [...input.items];
-  items[slot] = "built";
-  let state: GameState = {
+  const doneAt = now + buildDurationSeconds(input.villageIndex, slot, repair) * 1000;
+  const state: GameState = {
     ...input,
-    items,
     coins: input.coins - cost,
-    stars: input.stars + (current === "none" ? 1 : 0),
+    itemBuilds: { ...input.itemBuilds, [slot]: { doneAt, repair } },
   };
-  const result: BuildResult = { slot, repaired };
-
-  if (items.every((it) => it === "built") && state.villageIndex < VILLAGES.length - 1) {
-    const rewardSpins = 25;
-    const rewardCoins = 50_000 * villageScale(state.villageIndex);
-    result.villageCompleted = {
-      name: VILLAGES[state.villageIndex].name,
-      rewardSpins,
-      rewardCoins,
-    };
-    state = {
-      ...state,
-      villageIndex: state.villageIndex + 1,
-      items: ["none", "none", "none", "none", "none"],
-      spins: state.spins + rewardSpins,
-      coins: state.coins + rewardCoins,
-    };
-  }
-
-  return { state, result };
+  return { state, result: { slot, repair, doneAt } };
 }
 
 export interface ChestResult {
@@ -418,6 +455,14 @@ export interface ActionResponse {
   build?: BuildResult;
   chest?: ChestResult;
   daily?: DailyReward;
+  /**
+   * Bau-Fertigstellungen, die durch diese Aktion (bzw. den Zeitablauf
+   * seit dem letzten Aufruf) autoritativ ausgelöst wurden. Wird auch von
+   * `refreshState` mitgeliefert – der Client zeigt dann die Objekte als
+   * "gebaut" an bzw. löst das Level-Up-Overlay aus.
+   */
+  buildsCompleted?: number[];
+  villageCompleted?: { name: string; rewardSpins: number; rewardCoins: number };
 }
 
 /**
@@ -438,10 +483,16 @@ export async function runAction(
     return { state };
   }
 
-  // Regeneration immer zuerst anwenden (serverseitig, manipulationssicher).
+  // Regeneration + Bau-Fortschritt immer zuerst anwenden
+  // (serverseitig, manipulationssicher). So werden abgelaufene Bau-Timer
+  // vor jeder Aktion in "built" umgewandelt und evtl. das Dorf komplettiert.
   state = applyRegen(state, now);
+  const progress = applyBuildProgress(state, now);
+  state = progress.state;
 
   const response: ActionResponse = { state };
+  if (progress.completedSlots.length > 0) response.buildsCompleted = progress.completedSlots;
+  if (progress.villageCompleted) response.villageCompleted = progress.villageCompleted;
 
   switch (action.type) {
     case "spin": {
@@ -452,7 +503,7 @@ export async function runAction(
       break;
     }
     case "build": {
-      const { state: next, result } = performBuild(state, action.slot);
+      const { state: next, result } = performBuild(state, action.slot, now);
       state = next;
       response.build = result;
       break;

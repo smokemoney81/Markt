@@ -29,6 +29,13 @@ export type SpinOutcome =
 
 export type ItemState = "none" | "built" | "damaged";
 
+export interface BuildJob {
+  /** Zeitstempel (ms) für die Fertigstellung. */
+  doneAt: number;
+  /** true = Reparatur (kein neuer Stern), false = Neubau. */
+  repair: boolean;
+}
+
 export type CardId = string;
 
 export interface GameState {
@@ -40,6 +47,8 @@ export interface GameState {
   villageIndex: number;
   /** Zustand der 5 Dorf-Objekte des aktuellen Dorfs */
   items: ItemState[];
+  /** Laufende Bau-Timer: slot -> BuildJob (fehlend = kein aktiver Bau). */
+  itemBuilds: Record<number, BuildJob>;
   /** Karten-Besitz: cardId -> Anzahl */
   cards: Record<CardId, number>;
   /** Bereits eingelöste (komplette) Sets */
@@ -345,6 +354,21 @@ export function chestCost(chest: Chest, villageIndex: number): number {
   return chest.baseCost * villageScale(villageIndex);
 }
 
+/** Basis-Bauzeit in Sekunden pro Slot 0-4 (späte Slots dauern länger). */
+const BUILD_TIME_BASE_SECONDS = [8, 15, 25, 40, 60];
+
+/** Bauzeit in Sekunden für Slot im Dorf; Reparatur ist deutlich schneller. */
+export function buildDurationSeconds(
+  villageIndex: number,
+  slot: number,
+  repair = false,
+): number {
+  const base = BUILD_TIME_BASE_SECONDS[slot] ?? 30;
+  const scale = 1 + villageIndex * 0.25;
+  const repairFactor = repair ? 0.4 : 1;
+  return Math.max(1, Math.round(base * scale * repairFactor));
+}
+
 // ---------- Slot-Logik ----------
 
 /** Gewichtete Ergebnis-Tabelle (wie im Original serverseitig entschieden). */
@@ -509,6 +533,7 @@ export function newGame(): GameState {
     bet: 1,
     villageIndex: 0,
     items: ["none", "none", "none", "none", "none"],
+    itemBuilds: {},
     cards: {},
     completedSets: [],
     lastRegenAt: now,
@@ -571,6 +596,71 @@ export function rollOfflineAttacks(state: GameState, now: number): { state: Game
     }
   }
   return { state: { ...s, lastSeenAt: now }, news };
+}
+
+// ---------- Bauzeit-Fortschritt ----------
+
+export interface BuildProgressResult {
+  state: GameState;
+  /** Slots, die durch diesen Aufruf gerade fertig wurden. */
+  completedSlots: number[];
+  /** Gesetzt, wenn dadurch das ganze Dorf abgeschlossen wurde. */
+  villageCompleted?: {
+    name: string;
+    rewardSpins: number;
+    rewardCoins: number;
+  };
+}
+
+/**
+ * Wandelt alle abgelaufenen Bau-Timer in fertige Objekte um und prüft
+ * anschließend, ob dadurch das Dorf komplettiert wurde. Wird bei jeder
+ * Server-Aktion vor der eigentlichen Logik aufgerufen (analog zu
+ * `applyRegen`), damit die Fertigstellung autoritativ und nicht
+ * client-getriggert passiert.
+ */
+export function applyBuildProgress(state: GameState, now: number): BuildProgressResult {
+  const items = [...state.items];
+  const itemBuilds: Record<number, BuildJob> = { ...state.itemBuilds };
+  const completedSlots: number[] = [];
+  let stars = state.stars;
+
+  for (const slotStr of Object.keys(itemBuilds)) {
+    const slot = Number(slotStr);
+    const job = itemBuilds[slot];
+    if (job && job.doneAt <= now) {
+      items[slot] = "built";
+      if (!job.repair) stars += 1;
+      delete itemBuilds[slot];
+      completedSlots.push(slot);
+    }
+  }
+
+  let result: GameState = { ...state, items, itemBuilds, stars };
+  let villageCompleted: BuildProgressResult["villageCompleted"];
+
+  if (
+    result.items.every((it) => it === "built") &&
+    result.villageIndex < VILLAGES.length - 1
+  ) {
+    const rewardSpins = 25;
+    const rewardCoins = 50_000 * villageScale(result.villageIndex);
+    villageCompleted = {
+      name: VILLAGES[result.villageIndex].name,
+      rewardSpins,
+      rewardCoins,
+    };
+    result = {
+      ...result,
+      villageIndex: result.villageIndex + 1,
+      items: ["none", "none", "none", "none", "none"],
+      itemBuilds: {},
+      spins: result.spins + rewardSpins,
+      coins: result.coins + rewardCoins,
+    };
+  }
+
+  return { state: result, completedSlots, villageCompleted };
 }
 
 // ---------- Tagesbonus ----------
