@@ -13,8 +13,15 @@ import {
   Trophy,
   X,
   Zap,
+  Gem,
+  Users,
+  TrendingUp,
 } from "lucide-react";
 import { Sheet } from "@/components/ui";
+import { BattlePassModal } from "./BattlePassModal";
+import { CosmeticsModal } from "./CosmeticsModal";
+import { LeaderboardModal } from "./LeaderboardModal";
+import { FriendsModal } from "./FriendsModal";
 import {
   BET_STEPS,
   buildDurationSeconds,
@@ -70,7 +77,13 @@ type Overlay =
   | { type: "jackpot"; coins: number }
   | { type: "info"; title: string; body: React.ReactNode }
   | { type: "discount"; endsAt: number; product: string; percent: number }
+  | { type: "battle-pass"; level: number; xp: number }
+  | { type: "cosmetics"; selected: string }
+  | { type: "leaderboard"; period: "global" | "weekly" | "seasonal" }
+  | { type: "friends"; friendIds: string[] }
   | null;
+
+type Tab = "game" | "battle-pass" | "cosmetics" | "leaderboard" | "friends";
 
 function errMsg(e: unknown): string {
   return e instanceof GameApiError ? e.message : "Verbindungsfehler.";
@@ -88,6 +101,7 @@ export default function CoinMasterGame() {
   const [shopOpen, setShopOpen] = useState(false);
   const [shop, setShop] = useState<ShopOverview | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [tab, setTab] = useState<Tab>("game");
   const busy = spinningReels.some(Boolean);
   const timeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
   const stateRef = useRef<GameState | null>(null);
@@ -471,7 +485,56 @@ export default function CoinMasterGame() {
 
   return (
     <div className="lvl-root px-4 pb-6" style={themeStyle}>
-      {/* ---------- Kopfzeile mit Ressourcen ---------- */}
+      {/* ---------- Tab-Navigation ---------- */}
+      {state && (
+        <div className="mb-4 flex gap-1 overflow-x-auto pb-2">
+          <button
+            onClick={() => setTab("game")}
+            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              tab === "game" ? "bg-yellow-500 text-yellow-950" : "bg-surface hover:bg-surface-light"
+            }`}
+          >
+            🎮 Spiel
+          </button>
+          <button
+            onClick={() => setTab("battle-pass")}
+            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition flex items-center gap-1 ${
+              tab === "battle-pass" ? "bg-purple-500 text-white" : "bg-surface hover:bg-surface-light"
+            }`}
+          >
+            <Gem size={14} /> BP
+            {state.battlePassLevel > 0 && <span className="badge">{state.battlePassLevel}</span>}
+          </button>
+          <button
+            onClick={() => setTab("cosmetics")}
+            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              tab === "cosmetics" ? "bg-pink-500 text-white" : "bg-surface hover:bg-surface-light"
+            }`}
+          >
+            🎨 Themes
+          </button>
+          <button
+            onClick={() => setTab("leaderboard")}
+            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              tab === "leaderboard" ? "bg-amber-500 text-amber-950" : "bg-surface hover:bg-surface-light"
+            }`}
+          >
+            <TrendingUp size={14} className="inline mr-1" /> Rang
+          </button>
+          <button
+            onClick={() => setTab("friends")}
+            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              tab === "friends" ? "bg-blue-500 text-white" : "bg-surface hover:bg-surface-light"
+            }`}
+          >
+            <Users size={14} className="inline mr-1" /> Friends
+          </button>
+        </div>
+      )}
+
+      {tab === "game" && state && (
+        <>
+          {/* ---------- Kopfzeile mit Ressourcen ---------- */}
       <div className="mb-4 grid grid-cols-4 gap-2">
         <StatPill emoji="🪙" label="Münzen" value={fmt(state.coins)} />
         <StatPill
@@ -1000,6 +1063,65 @@ export default function CoinMasterGame() {
         </GameOverlay>
       )}
 
+      {overlay?.type === "battle-pass" && (
+        <GameOverlay onClose={() => setOverlay(null)}>
+          <BattlePassModal level={overlay.level} xp={overlay.xp} />
+          <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
+            Schließen
+          </button>
+        </GameOverlay>
+      )}
+
+      {overlay?.type === "cosmetics" && (
+        <GameOverlay onClose={() => setOverlay(null)}>
+          <CosmeticsModal
+            selected={overlay.selected}
+            stars={state?.stars ?? 0}
+            onSelect={async (theme) => {
+              await api.selectTheme(theme as "default" | "neon" | "cyber" | "mystic");
+              setOverlay(null);
+            }}
+          />
+          <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
+            Schließen
+          </button>
+        </GameOverlay>
+      )}
+
+      {overlay?.type === "leaderboard" && (
+        <GameOverlay onClose={() => setOverlay(null)}>
+          <LeaderboardModal
+            myRank={null}
+            entries={[]}
+            period={overlay.period}
+            onPeriodChange={(period) => setOverlay({ type: "leaderboard", period })}
+          />
+          <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
+            Schließen
+          </button>
+        </GameOverlay>
+      )}
+
+      {overlay?.type === "friends" && (
+        <GameOverlay onClose={() => setOverlay(null)}>
+          <FriendsModal
+            friendIds={overlay.friendIds}
+            onAddFriend={async (fid) => {
+              await api.addFriend(fid);
+            }}
+            onRemoveFriend={async (fid) => {
+              await api.removeFriend(fid);
+            }}
+            onSendGift={async (fid, coins, spins) => {
+              await api.sendGift(fid, coins, spins);
+            }}
+          />
+          <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
+            Schließen
+          </button>
+        </GameOverlay>
+      )}
+
       {/* ---------- Karten-Sheet ---------- */}
       <Sheet open={cardsOpen} onClose={() => setCardsOpen(false)} title="Karten & Truhen">
         <div className="mb-4 grid grid-cols-3 gap-2">
@@ -1122,6 +1244,63 @@ export default function CoinMasterGame() {
           Käufe werden erst mit angebundenem Zahlungsanbieter aktiv.
         </p>
       </Sheet>
+        </>
+      )}
+
+      {tab === "battle-pass" && state && (
+        <div className="card p-4">
+          <BattlePassModal level={state.battlePassLevel} xp={state.battlePassXp} />
+        </div>
+      )}
+
+      {tab === "cosmetics" && state && (
+        <div className="card p-4">
+          <CosmeticsModal
+            selected={state.selectedTheme}
+            stars={state.stars}
+            onSelect={async (theme) => {
+              await api.selectTheme(theme as "default" | "neon" | "cyber" | "mystic");
+              // Refresh state
+              const fresh = await api.fetchState();
+              setState(fresh.state);
+            }}
+          />
+        </div>
+      )}
+
+      {tab === "leaderboard" && state && (
+        <div className="card p-4">
+          <LeaderboardModal
+            myRank={null}
+            entries={[]}
+            period="global"
+            onPeriodChange={() => {}}
+          />
+        </div>
+      )}
+
+      {tab === "friends" && state && (
+        <div className="card p-4">
+          <FriendsModal
+            friendIds={state.friendIds}
+            onAddFriend={async (fid) => {
+              await api.addFriend(fid);
+              const fresh = await api.fetchState();
+              setState(fresh.state);
+            }}
+            onRemoveFriend={async (fid) => {
+              await api.removeFriend(fid);
+              const fresh = await api.fetchState();
+              setState(fresh.state);
+            }}
+            onSendGift={async (fid, coins, spins) => {
+              await api.sendGift(fid, coins, spins);
+              const fresh = await api.fetchState();
+              setState(fresh.state);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
