@@ -76,6 +76,31 @@ interface GameRow {
   total_spins: number;
   attacks_won: number;
   raids_won: number;
+  // Phase 5
+  battle_pass_level: number | null;
+  battle_pass_xp: number | null;
+  // Phase 6
+  clan_id: string | null;
+  // Phase 8
+  weekly_challenge_bits: number | null;
+  last_weekly_challenge_reset: string | null;
+  // Phase 9
+  achievement_bits: number | null;
+  // Phase 10
+  current_season_id: string | null;
+  season_progress: number | null;
+  // Phase 11
+  selected_theme: string | null;
+  // Phase 13
+  wheel_upgrades: Record<string, number> | null;
+  // Phase 14
+  daily_quest_bits: number | null;
+  last_daily_quest_reset: string | null;
+  // Phase 15
+  vip_tier: number | null;
+  vip_expire_at: string | null;
+  // Phase 16
+  friend_ids: string[] | null;
 }
 
 const ms = (iso: string | null): number => (iso ? new Date(iso).getTime() : 0);
@@ -121,6 +146,21 @@ function rowToState(row: GameRow): GameState {
     totalSpins: row.total_spins,
     attacksWon: row.attacks_won,
     raidsWon: row.raids_won,
+    battlePassLevel: row.battle_pass_level ?? 0,
+    battlePassXp: row.battle_pass_xp ?? 0,
+    clanId: row.clan_id ?? null,
+    weeklyChallengeBits: row.weekly_challenge_bits ?? 0,
+    lastWeeklyChallengeReset: ms(row.last_weekly_challenge_reset),
+    achievementBits: row.achievement_bits ?? 0,
+    currentSeasonId: row.current_season_id ?? "spring",
+    seasonProgress: row.season_progress ?? 0,
+    selectedTheme: (row.selected_theme ?? "default") as "default" | "neon" | "cyber" | "mystic",
+    wheelUpgrades: row.wheel_upgrades ?? {},
+    dailyQuestBits: row.daily_quest_bits ?? 0,
+    lastDailyQuestReset: ms(row.last_daily_quest_reset),
+    vipTier: (row.vip_tier ?? 0) as 0 | 1 | 2 | 3,
+    vipExpireAt: ms(row.vip_expire_at),
+    friendIds: row.friend_ids ?? [],
   };
 }
 
@@ -144,6 +184,21 @@ function stateToRow(state: GameState) {
     total_spins: state.totalSpins,
     attacks_won: state.attacksWon,
     raids_won: state.raidsWon,
+    battle_pass_level: state.battlePassLevel,
+    battle_pass_xp: state.battlePassXp,
+    clan_id: state.clanId,
+    weekly_challenge_bits: state.weeklyChallengeBits,
+    last_weekly_challenge_reset: iso(state.lastWeeklyChallengeReset),
+    achievement_bits: state.achievementBits,
+    current_season_id: state.currentSeasonId,
+    season_progress: state.seasonProgress,
+    selected_theme: state.selectedTheme,
+    wheel_upgrades: state.wheelUpgrades,
+    daily_quest_bits: state.dailyQuestBits,
+    last_daily_quest_reset: iso(state.lastDailyQuestReset),
+    vip_tier: state.vipTier,
+    vip_expire_at: iso(state.vipExpireAt),
+    friend_ids: state.friendIds,
     updated_at: new Date().toISOString(),
   };
 }

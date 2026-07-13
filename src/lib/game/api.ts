@@ -76,3 +76,59 @@ export type CheckoutResult =
 
 export const checkout = (productId: string) =>
   post<CheckoutResult>("/api/spiel/checkout", { productId });
+
+// ---------- Phasen 5-16 APIs ----------
+
+export const claimBattlePass = (tier: number) =>
+  post("/api/spiel/actions", { action: "battle-pass-claim", params: { tier } });
+
+export const joinClan = (clanId: string) =>
+  post("/api/spiel/actions", { action: "clan-join", params: { clanId } });
+
+export const leaveClan = () =>
+  post("/api/spiel/actions", { action: "clan-leave" });
+
+export const unlockAchievement = (index: number) =>
+  post("/api/spiel/actions", { action: "achievement-unlock", params: { index } });
+
+export const selectTheme = (theme: "default" | "neon" | "cyber" | "mystic") =>
+  post("/api/spiel/actions", { action: "theme-select", params: { theme } });
+
+export const upgradeWheel = (upgrade: string, cost: number) =>
+  post("/api/spiel/actions", { action: "wheel-upgrade", params: { upgrade, cost } });
+
+export const completeQuest = (index: number) =>
+  post("/api/spiel/actions", { action: "quest-complete", params: { index } });
+
+export const purchaseVip = (tier: 1 | 2 | 3, days?: number) =>
+  post("/api/spiel/actions", { action: "vip-purchase", params: { tier, days } });
+
+export const addFriend = (friendId: string) =>
+  post("/api/spiel/actions", { action: "friend-add", params: { friendId } });
+
+export const removeFriend = (friendId: string) =>
+  post("/api/spiel/actions", { action: "friend-remove", params: { friendId } });
+
+export async function fetchLeaderboard(period: string = "global", limit: number = 10) {
+  const res = await fetch(`/api/spiel/leaderboard?period=${period}&limit=${limit}`);
+  const data = await res.json();
+  if (!res.ok) throw new GameApiError(data?.code ?? "FEHLER", data?.error ?? "Fehler beim Laden.");
+  return data;
+}
+
+export async function fetchCosmetics() {
+  const res = await fetch("/api/spiel/cosmetics");
+  const data = await res.json();
+  if (!res.ok) throw new GameApiError(data?.code ?? "FEHLER", data?.error ?? "Fehler beim Laden.");
+  return data;
+}
+
+export async function fetchFriends() {
+  const res = await fetch("/api/spiel/friends");
+  const data = await res.json();
+  if (!res.ok) throw new GameApiError(data?.code ?? "FEHLER", data?.error ?? "Fehler beim Laden.");
+  return data;
+}
+
+export const sendGift = (recipientId: string, coins: number, spins: number) =>
+  post("/api/spiel/friends", { action: "send-gift", recipientId, coins, spins });
