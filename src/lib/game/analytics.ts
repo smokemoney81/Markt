@@ -46,3 +46,86 @@ export function isAdminEmail(email: string | undefined | null): boolean {
     .filter(Boolean);
   return allow.includes(email.toLowerCase());
 }
+
+// ======== Phase 17: Player Analytics ========
+
+export interface PlayerStats {
+  totalSpins: number;
+  totalCoins: number;
+  totalCoinsEarned: number;
+  attacksWon: number;
+  raidsWon: number;
+  winRate: number;
+  avgCoinsPerSpin: number;
+  avgCoinsPerDay: number;
+  avgSpinsPerDay: number;
+  villageLevel: number;
+  villageProgress: number;
+  daysActive: number;
+  lastSeenDaysAgo: number;
+  streakDays: number;
+  battlePassLevel: number;
+  vipTier: number;
+}
+
+/**
+ * Berechnet Player-Statistiken für die Analytics-Seite.
+ * Ladet Game-State + Spin-Logs und aggregiert daraus KPIs.
+ */
+export async function getPlayerStats(
+  db: SupabaseClient,
+  userId: string,
+): Promise<PlayerStats | null> {
+  // Game-State laden
+  const { data: state, error: stateError } = await db
+    .from("game_state")
+    .select(
+      "coins, total_spins, attacks_won, raids_won, village_index, stars, daily_streak, last_seen_at, created_at, battle_pass_level, vip_tier",
+    )
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (stateError || !state) return null;
+
+  // Spin-Logs laden
+  const { data: logs, error: logsError } = await db
+    .from("game_spin_log")
+    .select("coin_amount, result_type", { count: "exact" })
+    .eq("user_id", userId);
+
+  if (logsError) return null;
+
+  const allLogs = logs || [];
+  const totalCoinsEarned = allLogs.reduce((sum, log) => sum + (log.coin_amount || 0), 0);
+  const totalWins = allLogs.filter((log) => ["attack", "raid"].includes(log.result_type)).length;
+
+  // Tage aktiv
+  const createdAt = new Date(state.created_at || Date.now()).getTime();
+  const now = Date.now();
+  const daysActive = Math.max(1, Math.floor((now - createdAt) / (1000 * 60 * 60 * 24)));
+
+  const lastSeenAt = new Date(state.last_seen_at || now).getTime();
+  const lastSeenDaysAgo = Math.floor((now - lastSeenAt) / (1000 * 60 * 60 * 24));
+
+  const villageLevel = Math.min(10, (state.village_index ?? 0) + 1);
+  const villageProgress = ((state.stars ?? 0) % 10) * 10;
+
+  return {
+    totalSpins: state.total_spins ?? 0,
+    totalCoins: state.coins ?? 0,
+    totalCoinsEarned,
+    attacksWon: state.attacks_won ?? 0,
+    raidsWon: state.raids_won ?? 0,
+    winRate: state.total_spins ? Math.round((totalWins / state.total_spins) * 100) : 0,
+    avgCoinsPerSpin: state.total_spins ? Math.floor(totalCoinsEarned / state.total_spins) : 0,
+    avgCoinsPerDay: daysActive > 0 ? Math.floor(totalCoinsEarned / daysActive) : 0,
+    avgSpinsPerDay: daysActive > 0 ? Math.floor(state.total_spins / daysActive) : 0,
+    villageLevel,
+    villageProgress,
+    daysActive,
+    lastSeenDaysAgo,
+    streakDays: state.daily_streak ?? 0,
+    battlePassLevel: state.battle_pass_level ?? 0,
+    vipTier: state.vip_tier ?? 0,
+  };
+}
