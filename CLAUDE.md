@@ -101,6 +101,7 @@ supabase/migrations/0001_init.sql   # Dashboard-Schema + RLS + Storage-Bucket
 supabase/migrations/0002_game.sql   # Spiel-Ökonomie (game_state, game_spin_log)
 supabase/migrations/0003_shop.sql   # Monetarisierung (game_reward_log, game_purchases)
 supabase/migrations/0004_analytics.sql  # KPI-Aggregat-Funktion game_analytics()
+supabase/migrations/0005_streak.sql # Tagesbonus-Streak (Spalte game_state.daily_streak)
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool

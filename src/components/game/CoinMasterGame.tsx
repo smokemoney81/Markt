@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftRight,
+  Flame,
   Layers,
   RotateCcw,
   ShoppingBag,
   Star,
+  Trophy,
   X,
   Zap,
 } from "lucide-react";
@@ -24,6 +26,7 @@ import {
   reelsForOutcome,
   repairCost,
   SPIN_REGEN_SECONDS,
+  streakMultiplier,
   VILLAGES,
   type AttackSetup,
   type Card,
@@ -35,6 +38,7 @@ import {
   type OfflineAttackNews,
   type SlotSymbol,
 } from "@/lib/game/coinmaster";
+import { getLevelTheme, themeCssVars } from "@/lib/game/theme";
 import * as api from "@/lib/game/api";
 import { GameApiError } from "@/lib/game/api";
 import type { ActionResponse } from "@/lib/game/server";
@@ -59,6 +63,7 @@ type Overlay =
   | { type: "offline"; news: OfflineAttackNews[] }
   | { type: "village"; name: string; rewardSpins: number; rewardCoins: number }
   | { type: "set"; set: CardSet }
+  | { type: "jackpot"; coins: number }
   | null;
 
 function errMsg(e: unknown): string {
@@ -198,7 +203,7 @@ export default function CoinMasterGame() {
         showToast(`+${fmt(spin.outcome.coins)} Münzen`);
         break;
       case "jackpot":
-        showToast(`💰 Jackpot! +${fmt(spin.outcome.coins)} Münzen`);
+        setOverlay({ type: "jackpot", coins: spin.outcome.coins });
         break;
       case "energy":
         showToast(`⚡ +${spin.outcome.spins} Spins`);
@@ -351,9 +356,16 @@ export default function CoinMasterGame() {
     0,
     SPIN_REGEN_SECONDS - Math.floor((now - state.lastRegenAt) / 1000),
   );
+  const theme = useMemo(() => getLevelTheme(state.villageIndex), [state.villageIndex]);
+  const themeStyle = useMemo(() => themeCssVars(theme), [theme]);
+  const villagePct = Math.round((builtCount / state.items.length) * 100);
+  const overallPct = Math.round(
+    ((state.villageIndex + builtCount / state.items.length) / VILLAGES.length) * 100,
+  );
+  const avgWin = state.totalSpins > 0 ? Math.round(state.coins / state.totalSpins) : 0;
 
   return (
-    <div className="px-4 pb-6">
+    <div className="lvl-root px-4 pb-6" style={themeStyle}>
       {/* ---------- Kopfzeile mit Ressourcen ---------- */}
       <div className="mb-4 grid grid-cols-4 gap-2">
         <StatPill emoji="🪙" label="Münzen" value={fmt(state.coins)} />
@@ -370,10 +382,36 @@ export default function CoinMasterGame() {
         <StatPill emoji="⭐" label="Sterne" value={`${state.stars}`} />
       </div>
 
+      {/* ---------- Fortschritt: aktuelles Dorf & Gesamt ---------- */}
+      <div className="mb-3 flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card px-3 py-2">
+        <Trophy size={16} className="lvl-heading shrink-0" aria-hidden />
+        <div className="flex-1">
+          <div className="flex items-center justify-between text-[11px] font-medium text-gray-400">
+            <span>
+              Dorf <span className="lvl-heading font-bold">{state.villageIndex + 1}</span>/{VILLAGES.length} · {theme.tierLabel}
+            </span>
+            <span>{builtCount}/{state.items.length} gebaut</span>
+          </div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-border">
+            <div className="lvl-progress-fill h-full" style={{ width: `${villagePct}%` }} />
+          </div>
+          <div className="mt-1 text-[10px] text-gray-500">
+            Gesamt-Fortschritt: {overallPct}%
+          </div>
+        </div>
+        {state.dailyStreak > 0 && (
+          <div className="flex flex-col items-center px-1 text-[10px] leading-tight text-orange-300">
+            <Flame size={16} className="streak-flame" aria-hidden />
+            <span className="mt-0.5 font-bold">{state.dailyStreak} T.</span>
+            <span className="text-[9px] text-orange-400/70">{streakMultiplier(state.dailyStreak)}×</span>
+          </div>
+        )}
+      </div>
+
       {/* ---------- Slot-Maschine ---------- */}
-      <div className="card bg-gradient-to-b from-[#241a2e] to-surface-card">
+      <div className="card lvl-panel">
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-bold text-yellow-300">
+          <span className="lvl-heading text-sm font-bold">
             {village.emoji} {village.name} · Dorf {state.villageIndex + 1}
           </span>
           <button
@@ -389,7 +427,7 @@ export default function CoinMasterGame() {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-yellow-500/40 bg-[#120d17] p-3">
+        <div className="lvl-reel-frame grid grid-cols-3 gap-2 rounded-2xl border-2 p-3">
           {reels.map((sym, i) => (
             <Reel key={i} symbol={sym} spinning={spinningReels[i]} />
           ))}
@@ -488,9 +526,24 @@ export default function CoinMasterGame() {
         </button>
       </div>
 
-      <p className="mt-3 text-center text-[11px] text-gray-600">
-        {state.totalSpins} Spins gespielt · {state.attacksWon} Angriffe · {state.raidsWon} Raids
-      </p>
+      <div className="mt-3 grid grid-cols-4 gap-1 text-center text-[10px] text-gray-500">
+        <div>
+          <div className="text-xs font-bold text-gray-300">{state.totalSpins}</div>
+          <div>Spins</div>
+        </div>
+        <div>
+          <div className="text-xs font-bold text-gray-300">{state.attacksWon}</div>
+          <div>Angriffe</div>
+        </div>
+        <div>
+          <div className="text-xs font-bold text-gray-300">{state.raidsWon}</div>
+          <div>Raids</div>
+        </div>
+        <div>
+          <div className="text-xs font-bold text-gray-300">{fmt(avgWin)}</div>
+          <div>Ø/Spin</div>
+        </div>
+      </div>
 
       {/* ---------- Overlays ---------- */}
       {overlay?.type === "attack" && (
@@ -601,6 +654,15 @@ export default function CoinMasterGame() {
             <div className="text-5xl">{overlay.reward.emoji}</div>
             <h3 className="mt-2 text-lg font-extrabold">Tagesbonus!</h3>
             <p className="mt-1 text-yellow-300">{overlay.reward.label}</p>
+            <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-300">
+              <Flame size={12} className="streak-flame" />
+              Streak: Tag {overlay.reward.streak}
+              {overlay.reward.multiplier > 1 && (
+                <span className="ml-1 rounded bg-orange-500/30 px-1.5 py-0.5 text-[10px] font-bold">
+                  {overlay.reward.multiplier}×
+                </span>
+              )}
+            </div>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Super!
             </button>
@@ -692,6 +754,28 @@ export default function CoinMasterGame() {
             </p>
             <button onClick={() => setOverlay(null)} className="btn-primary mt-4 w-full">
               Stark!
+            </button>
+          </div>
+        </GameOverlay>
+      )}
+
+      {overlay?.type === "jackpot" && (
+        <GameOverlay>
+          <Confetti />
+          <div className="relative py-4 text-center">
+            <div className="jackpot-bounce text-6xl">💰</div>
+            <h3 className="mt-2 text-2xl font-extrabold uppercase tracking-wider lvl-heading">
+              Jackpot!
+            </h3>
+            <p className="mt-2 text-3xl font-black text-yellow-300 jackpot-bounce">
+              +{fmt(overlay.coins)} 🪙
+            </p>
+            <p className="mt-2 text-xs text-gray-400">Volle Kanne! Alle drei Beutel voll!</p>
+            <button
+              onClick={() => setOverlay(null)}
+              className="btn mt-4 w-full bg-gradient-to-r from-yellow-400 to-yellow-600 font-extrabold text-yellow-950"
+            >
+              Kassieren
             </button>
           </div>
         </GameOverlay>
@@ -865,7 +949,7 @@ function GameOverlay({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-sm rounded-3xl border border-surface-border bg-surface-card p-5 shadow-2xl">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-surface-border bg-surface-card p-5 shadow-2xl">
         {onClose && (
           <div className="flex justify-end">
             <button
@@ -879,6 +963,50 @@ function GameOverlay({
         )}
         {children}
       </div>
+    </div>
+  );
+}
+
+const CONFETTI_EMOJIS = ["🎉", "✨", "💰", "🪙", "🌟", "💎"];
+
+/**
+ * Leichtgewichtiges Confetti: deterministisch generierte Emojis, die per
+ * CSS-Keyframe (`confettiFall`) über den Popup-Container regnen. Kein
+ * Framer Motion, keine Canvas – nur pointer-events:none-Overlay.
+ */
+function Confetti({ count = 24 }: { count?: number }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: count }).map((_, i) => {
+        const dx = Math.round((Math.random() - 0.5) * 220);
+        const rot = Math.round((Math.random() - 0.5) * 720);
+        const delay = Math.round(Math.random() * 400);
+        const duration = 1800 + Math.round(Math.random() * 900);
+        const left = Math.round(Math.random() * 100);
+        const emoji = CONFETTI_EMOJIS[i % CONFETTI_EMOJIS.length];
+        return { dx, rot, delay, duration, left, emoji };
+      }),
+    [count],
+  );
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className="confetti-piece"
+          style={
+            {
+              left: `${p.left}%`,
+              animationDelay: `${p.delay}ms`,
+              "--cx": `${p.dx}px`,
+              "--cr": `${p.rot}deg`,
+              "--cd": `${p.duration}ms`,
+            } as React.CSSProperties
+          }
+        >
+          {p.emoji}
+        </span>
+      ))}
     </div>
   );
 }

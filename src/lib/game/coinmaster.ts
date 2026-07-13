@@ -48,6 +48,8 @@ export interface GameState {
   lastRegenAt: number;
   /** Zeitstempel (ms) des letzten Tagesbonus */
   lastDailyAt: number;
+  /** Aufeinanderfolgende Tage mit eingelöstem Tagesbonus (0 = keiner). */
+  dailyStreak: number;
   /** Zeitstempel (ms) des letzten Besuchs (für Offline-Angriffe) */
   lastSeenAt: number;
   /** Statistik */
@@ -511,6 +513,7 @@ export function newGame(): GameState {
     completedSets: [],
     lastRegenAt: now,
     lastDailyAt: 0,
+    dailyStreak: 0,
     lastSeenAt: now,
     totalSpins: 0,
     attacksWon: 0,
@@ -577,11 +580,40 @@ export interface DailyReward {
   emoji: string;
   spins: number;
   coins: number;
+  /** Angewandter Streak-Multiplikator (1, 1.5, 2, 3). */
+  multiplier: number;
+  /** Der Streak, den dieser Claim gerade markiert hat. */
+  streak: number;
 }
 
-export function rollDailyReward(villageIndex: number): DailyReward {
+/**
+ * Multiplikator basierend auf Streak-Tagen.
+ *  - Tag 1-2: 1x  (Ankommen)
+ *  - Tag 3-6: 1,5x
+ *  - Tag 7-13: 2x
+ *  - Tag 14+: 3x
+ */
+export function streakMultiplier(streak: number): number {
+  if (streak >= 14) return 3;
+  if (streak >= 7) return 2;
+  if (streak >= 3) return 1.5;
+  return 1;
+}
+
+/**
+ * Ermittelt den neuen Streak-Wert für einen Claim jetzt.
+ * Wer >48h nichts abgeholt hat, fängt wieder bei 1 an; sonst +1.
+ */
+export function nextStreak(currentStreak: number, lastDailyAt: number, now: number): number {
+  if (lastDailyAt <= 0) return 1;
+  const hoursSince = (now - lastDailyAt) / 3_600_000;
+  if (hoursSince > 48) return 1;
+  return currentStreak + 1;
+}
+
+export function rollDailyReward(villageIndex: number, streak: number): DailyReward {
   const scale = villageScale(villageIndex);
-  const options: DailyReward[] = [
+  const options: Omit<DailyReward, "multiplier" | "streak">[] = [
     { label: "10 Spins", emoji: "⚡", spins: 10, coins: 0 },
     { label: "25 Spins", emoji: "⚡", spins: 25, coins: 0 },
     { label: "50 Spins", emoji: "🌟", spins: 50, coins: 0 },
@@ -593,9 +625,20 @@ export function rollDailyReward(villageIndex: number): DailyReward {
   const weights = [30, 15, 5, 25, 17, 8];
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
+  let base = options[0];
   for (let i = 0; i < options.length; i++) {
-    if (r < weights[i]) return options[i];
+    if (r < weights[i]) {
+      base = options[i];
+      break;
+    }
     r -= weights[i];
   }
-  return options[0];
+  const multiplier = streakMultiplier(streak);
+  const spins = Math.round(base.spins * multiplier);
+  const coins = Math.round(base.coins * multiplier);
+  const label =
+    coins > 0
+      ? `${fmt(coins)} Münzen${multiplier === 1 ? "" : ` · ${multiplier}× Streak`}`
+      : `${spins} Spins${multiplier === 1 ? "" : ` · ${multiplier}× Streak`}`;
+  return { label, emoji: base.emoji, spins, coins, multiplier, streak };
 }

@@ -24,6 +24,7 @@ import {
   makeAttack,
   makeRaid,
   newGame,
+  nextStreak,
   openChest,
   repairCost,
   rollDailyReward,
@@ -57,6 +58,7 @@ interface GameRow {
   completed_sets: string[];
   last_regen_at: string;
   last_daily_at: string | null;
+  daily_streak: number | null;
   last_seen_at: string;
   total_spins: number;
   attacks_won: number;
@@ -80,6 +82,7 @@ function rowToState(row: GameRow): GameState {
     completedSets: row.completed_sets,
     lastRegenAt: ms(row.last_regen_at),
     lastDailyAt: ms(row.last_daily_at),
+    dailyStreak: row.daily_streak ?? 0,
     lastSeenAt: ms(row.last_seen_at),
     totalSpins: row.total_spins,
     attacksWon: row.attacks_won,
@@ -101,6 +104,7 @@ function stateToRow(state: GameState) {
     completed_sets: state.completedSets,
     last_regen_at: iso(state.lastRegenAt),
     last_daily_at: iso(state.lastDailyAt),
+    daily_streak: state.dailyStreak,
     last_seen_at: iso(state.lastSeenAt),
     total_spins: state.totalSpins,
     attacks_won: state.attacksWon,
@@ -365,10 +369,12 @@ export function performDaily(input: GameState, now: number): { state: GameState;
   if (!ready) {
     throw new GameError("BONUS_NICHT_BEREIT", "Tagesbonus noch nicht verfügbar.");
   }
-  const reward = rollDailyReward(input.villageIndex);
+  const streak = nextStreak(input.dailyStreak, input.lastDailyAt, now);
+  const reward = rollDailyReward(input.villageIndex, streak);
   const state: GameState = {
     ...input,
     lastDailyAt: now,
+    dailyStreak: streak,
     spins: input.spins + reward.spins,
     coins: input.coins + reward.coins,
   };
