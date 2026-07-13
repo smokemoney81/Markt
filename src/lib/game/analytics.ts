@@ -68,6 +68,117 @@ export interface PlayerStats {
   vipTier: number;
 }
 
+// ======== Phase 19: Weekly Challenge Progress ========
+
+export interface ChallengeProgress {
+  id: string;
+  name: string;
+  target: number;
+  current: number;
+  completed: boolean;
+  reward: number;
+  progress: number;
+}
+
+/**
+ * Berechnet Progress für alle 5 wöchentlichen Challenges.
+ * Basiert auf game_state + game_spin_log (aktuelle Woche).
+ */
+export async function getWeeklyChallenge(
+  db: SupabaseClient,
+  userId: string,
+): Promise<ChallengeProgress[]> {
+  const challenges = [
+    { id: "spin_100", name: "100 Spins", target: 100, reward: 50 },
+    { id: "build_5", name: "5 Gebäude fertigstellen", target: 5, reward: 200 },
+    { id: "win_raid", name: "1 Raid gewinnen", target: 1, reward: 300 },
+    { id: "collect_5k", name: "5000 Münzen sammeln", target: 5000, reward: 100 },
+    { id: "max_shield", name: "Max. Schilde sammeln", target: 3, reward: 250 },
+  ];
+
+  const { data: state } = await db
+    .from("game_state")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!state) {
+    return challenges.map((c) => ({
+      ...c,
+      current: 0,
+      completed: false,
+      progress: 0,
+    }));
+  }
+
+  // Diese Woche: Montag 00:00 bis Sonntag 23:59
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay()); // Montag
+  weekStart.setHours(0, 0, 0, 0);
+
+  // Spin-Logs dieser Woche laden
+  const { data: weekLogs } = await db
+    .from("game_spin_log")
+    .select("result_type, coin_amount")
+    .eq("user_id", userId)
+    .gte("created_at", weekStart.toISOString());
+
+  const logs = weekLogs || [];
+
+  // Progress pro Challenge berechnen
+  return challenges.map((challenge) => {
+    let current = 0;
+    let completed = false;
+
+    switch (challenge.id) {
+      case "spin_100": {
+        // Spins diese Woche
+        current = logs.length;
+        completed = current >= challenge.target;
+        break;
+      }
+      case "build_5": {
+        // Gebäude fertiggestellt (über item_builds)
+        // TODO: Würde komplexere Logik brauchen (build-logs)
+        // Für now: Zähle aus state.items wie viele "built" sind
+        const builtCount = (state.items || []).filter((item: string) => item === "built").length;
+        current = builtCount; // Vereinfachte Näherung
+        completed = current >= challenge.target;
+        break;
+      }
+      case "win_raid": {
+        // Raids gewonnen diese Woche
+        const raidsWon = logs.filter((l) => l.result_type === "raid").length;
+        current = raidsWon;
+        completed = current >= challenge.target;
+        break;
+      }
+      case "collect_5k": {
+        // Münzen diese Woche
+        current = logs.reduce((sum, log) => sum + (log.coin_amount || 0), 0);
+        completed = current >= challenge.target;
+        break;
+      }
+      case "max_shield": {
+        // Aktuell gehaltene Schilde
+        current = state.shields || 0;
+        completed = current >= challenge.target;
+        break;
+      }
+    }
+
+    const progressPercent = Math.min(100, Math.round((current / challenge.target) * 100));
+
+    return {
+      ...challenge,
+      current,
+      completed,
+      progress: progressPercent,
+    };
+  });
+}
+
 // ======== Phase 18: Achievement Unlocking ========
 
 export interface Achievement {
