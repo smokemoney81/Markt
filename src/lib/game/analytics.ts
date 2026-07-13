@@ -68,6 +68,121 @@ export interface PlayerStats {
   vipTier: number;
 }
 
+// ======== Phase 18: Achievement Unlocking ========
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  unlocked: boolean;
+  unlockedAt?: string;
+  progress?: number;
+  progressMax?: number;
+}
+
+/**
+ * Prüft, welche Achievements ein Spieler freigeschalten hat.
+ * Basiert auf game_state + game_spin_log.
+ */
+export async function getPlayerAchievements(
+  db: SupabaseClient,
+  userId: string,
+): Promise<Achievement[]> {
+  const achievements = [
+    { id: "first_build", name: "Baumeister", description: "Erstes Gebäude fertig" },
+    { id: "1000_spins", name: "Spinner", description: "1000 Spins total" },
+    { id: "10_dorf", name: "Himmelstürmer", description: "Alle 10 Dörfer erreicht" },
+    { id: "100_raids_won", name: "Kriegsheld", description: "100 Raids gewonnen" },
+    { id: "all_sets", name: "Sammler", description: "Alle Kartensätze vollendet" },
+    { id: "1M_coins", name: "Goldkönig", description: "1M Münzen verdient" },
+    { id: "50_daily", name: "Gewohnheit", description: "50 Tage hintereinander" },
+    { id: "jackpot_3", name: "Glückspilz", description: "3x Jackpot gewonnen" },
+    { id: "vip_30", name: "VIP-Fan", description: "30 Tage VIP" },
+    { id: "clan_10", name: "Teamplayer", description: "Clan mit 10 Mitgliedern" },
+    { id: "seasonal_2", name: "Jahresmensch", description: "2 Seasons vollendet" },
+    { id: "cosmetic_all", name: "Fashionista", description: "Alle Themes freigeschaltet" },
+  ];
+
+  // Spieler-Daten laden
+  const { data: state } = await db
+    .from("game_state")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!state) return achievements.map((a) => ({ ...a, unlocked: false }));
+
+  // Spin-Logs für Jackpot-Zählung laden
+  const { data: logs } = await db
+    .from("game_spin_log")
+    .select("result_type, coin_amount")
+    .eq("user_id", userId);
+
+  const allLogs = logs || [];
+  const jackpotCount = allLogs.filter((l) => l.result_type === "jackpot").length;
+
+  // Achievement-Status berechnen
+  const result: Achievement[] = achievements.map((ach) => {
+    let unlocked = false;
+
+    switch (ach.id) {
+      case "first_build":
+        // Mindestens ein Gebäude gebaut (items hat je mind. 1 "built")
+        unlocked = state.items?.some((item: string) => item === "built") ?? false;
+        break;
+      case "1000_spins":
+        unlocked = (state.total_spins ?? 0) >= 1000;
+        break;
+      case "10_dorf":
+        unlocked = (state.village_index ?? 0) >= 9;
+        break;
+      case "100_raids_won":
+        unlocked = (state.raids_won ?? 0) >= 100;
+        break;
+      case "all_sets":
+        unlocked = (state.completed_sets?.length ?? 0) >= 5; // 5 Card Sets
+        break;
+      case "1M_coins":
+        // Coins verdient (nicht aktuelle Münzen, sondern gesamt aus Spins)
+        const totalEarned = allLogs.reduce((sum, log) => sum + (log.coin_amount || 0), 0);
+        unlocked = totalEarned >= 1_000_000;
+        break;
+      case "50_daily":
+        unlocked = (state.daily_streak ?? 0) >= 50;
+        break;
+      case "jackpot_3":
+        unlocked = jackpotCount >= 3;
+        break;
+      case "vip_30":
+        // VIP für 30+ Tage
+        if (state.vip_tier && state.vip_tier > 0 && state.vip_expire_at) {
+          const expireTime = new Date(state.vip_expire_at).getTime();
+          const purchasedAt = expireTime - 30 * 24 * 60 * 60 * 1000; // 30 Tage zurück
+          const now = Date.now();
+          unlocked = purchasedAt <= now;
+        }
+        break;
+      case "clan_10":
+        // Clan mit 10+ Mitgliedern
+        unlocked = state.clan_id !== null && false; // TODO: Clan-Member-Count prüfen
+        break;
+      case "seasonal_2":
+        // 2+ Seasons vollendet (season_progress = 100)
+        unlocked = false; // TODO: seasonal_progress Aggregation
+        break;
+      case "cosmetic_all":
+        // Alle 4 Themes freigeschaltet
+        const wheelUpgrades = state.wheel_upgrades || {};
+        unlocked = Object.keys(wheelUpgrades).length >= 4;
+        break;
+    }
+
+    return { ...ach, unlocked };
+  });
+
+  return result;
+}
+
 /**
  * Berechnet Player-Statistiken für die Analytics-Seite.
  * Ladet Game-State + Spin-Logs und aggregiert daraus KPIs.
