@@ -109,7 +109,7 @@ export default function DashboardPage() {
                 {dueAds.length} Anzeige{dueAds.length > 1 ? "n" : ""} fällig
               </p>
               <p className="text-sm text-yellow-200/70">
-                Jetzt „nach oben schieben"
+                Jetzt „nach oben schieben&ldquo;
               </p>
             </div>
             <ChevronRight className="text-yellow-300" size={20} />

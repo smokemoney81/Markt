@@ -4,8 +4,8 @@
   "description": "Dashboard zur Verwaltung von Anzeigen, Kontakten, Terminen, Finanzen und Medien.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0b14",
-  "theme_color": "#0f0b14",
+  "background_color": "#05070a",
+  "theme_color": "#05070a",
   "orientation": "portrait",
   "icons": [
     {
