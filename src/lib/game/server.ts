@@ -76,6 +76,7 @@ interface GameRow {
   total_spins: number;
   attacks_won: number;
   raids_won: number;
+  version: number;
 }
 
 const ms = (iso: string | null): number => (iso ? new Date(iso).getTime() : 0);
@@ -150,25 +151,97 @@ function stateToRow(state: GameState) {
 
 // ---------- IO ----------
 
-/** Lädt den Spielstand oder legt beim ersten Zugriff einen neuen an. */
-export async function loadOrCreateState(
+/**
+ * Konflikt beim optimistischen Locking: Die Zeile wurde zwischen Laden und
+ * Schreiben von einem parallelen Request verändert (Version passte nicht mehr).
+ * Der Aufrufer lädt neu und wendet die Logik erneut an (siehe withVersionRetry).
+ */
+export class VersionConflictError extends Error {
+  constructor() {
+    super("Spielstand wurde parallel verändert (Version-Konflikt).");
+    this.name = "VersionConflictError";
+  }
+}
+
+/** Spielstand inkl. der beim Laden gelesenen Version (für den Version-Guard). */
+export interface LoadedState {
+  state: GameState;
+  version: number;
+}
+
+/**
+ * Lädt den Spielstand inkl. Version oder legt beim ersten Zugriff einen neuen
+ * an. Bei einem parallelen Erst-Insert (PK-Konflikt) wird einmal neu geladen.
+ */
+export async function loadStateVersioned(
   db: SupabaseClient,
   userId: string,
-): Promise<GameState> {
+): Promise<LoadedState> {
   const { data, error } = await db
     .from("game_state")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
-  if (data) return rowToState(data as GameRow);
+  if (data) {
+    const row = data as GameRow;
+    return { state: rowToState(row), version: Number(row.version ?? 0) };
+  }
 
   const fresh = newGame();
   const { error: insertError } = await db
     .from("game_state")
-    .insert({ user_id: userId, ...stateToRow(fresh) });
-  if (insertError) throw insertError;
-  return fresh;
+    .insert({ user_id: userId, ...stateToRow(fresh), version: 0 });
+  if (insertError) {
+    // Paralleler Erst-Insert desselben Nutzers → Zeile existiert jetzt.
+    if (insertError.code === "23505") {
+      const { data: again, error: againError } = await db
+        .from("game_state")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (againError) throw againError;
+      if (again) {
+        const row = again as GameRow;
+        return { state: rowToState(row), version: Number(row.version ?? 0) };
+      }
+    }
+    throw insertError;
+  }
+  return { state: fresh, version: 0 };
+}
+
+/** Lädt den Spielstand oder legt beim ersten Zugriff einen neuen an. */
+export async function loadOrCreateState(
+  db: SupabaseClient,
+  userId: string,
+): Promise<GameState> {
+  return (await loadStateVersioned(db, userId)).state;
+}
+
+/**
+ * Führt eine Load-modify-write-Operation mit optimistischem Locking aus und
+ * wiederholt sie bei Version-Konflikt (bounded). Die übergebene Funktion muss
+ * den Stand SELBST laden (loadStateVersioned) und mit persistState(..., version)
+ * schreiben, damit jeder Versuch auf frischen Daten arbeitet.
+ */
+export async function withVersionRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof VersionConflictError) {
+        lastError = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError ?? new VersionConflictError();
 }
 
 export interface RefreshResult {
@@ -184,32 +257,45 @@ export interface RefreshResult {
  * Angriffs-News sowie eventuelle Bau-Fertigstellungen für die UI zurück.
  */
 export async function refreshState(db: SupabaseClient, userId: string): Promise<RefreshResult> {
-  const now = Date.now();
-  let state = await loadOrCreateState(db, userId);
-  state = applyRegen(state, now);
-  const progress = applyBuildProgress(state, now);
-  state = progress.state;
-  const { state: afterAttacks, news } = rollOfflineAttacks(state, now);
-  await persistState(db, userId, afterAttacks);
-  return {
-    state: afterAttacks,
-    news,
-    ...(progress.completedSlots.length > 0 && { buildsCompleted: progress.completedSlots }),
-    ...(progress.villageCompleted && { villageCompleted: progress.villageCompleted }),
-  };
+  return withVersionRetry(async () => {
+    const now = Date.now();
+    const loaded = await loadStateVersioned(db, userId);
+    let state = applyRegen(loaded.state, now);
+    const progress = applyBuildProgress(state, now);
+    state = progress.state;
+    const { state: afterAttacks, news } = rollOfflineAttacks(state, now);
+    await persistState(db, userId, afterAttacks, loaded.version);
+    return {
+      state: afterAttacks,
+      news,
+      ...(progress.completedSlots.length > 0 && { buildsCompleted: progress.completedSlots }),
+      ...(progress.villageCompleted && { villageCompleted: progress.villageCompleted }),
+    };
+  });
 }
 
-/** Schreibt den kompletten State autoritativ zurück. */
+/**
+ * Schreibt den kompletten State autoritativ zurück – mit optimistischem
+ * Locking. Das UPDATE greift nur, wenn die Version noch der beim Laden
+ * gelesenen entspricht; sie wird dabei um 1 erhöht. Trifft parallel bereits
+ * eine höhere Version zu, schreibt das UPDATE 0 Zeilen → VersionConflictError.
+ */
 export async function persistState(
   db: SupabaseClient,
   userId: string,
   state: GameState,
-): Promise<void> {
-  const { error } = await db
+  expectedVersion: number,
+): Promise<number> {
+  const nextVersion = expectedVersion + 1;
+  const { data, error } = await db
     .from("game_state")
-    .update(stateToRow(state))
-    .eq("user_id", userId);
+    .update({ ...stateToRow(state), version: nextVersion })
+    .eq("user_id", userId)
+    .eq("version", expectedVersion)
+    .select("version");
   if (error) throw error;
+  if (!data || data.length === 0) throw new VersionConflictError();
+  return nextVersion;
 }
 
 async function logSpin(
@@ -362,7 +448,12 @@ export function performBuild(
 
 export interface ChestResult {
   cards: Card[];
-  completedSet?: CardSet;
+  /**
+   * ALLE Sets, die durch diese Truhe gleichzeitig komplettiert wurden. Eine
+   * Truhe kann mehrere Karten ziehen und damit mehr als ein Set auf einmal
+   * abschließen – alle werden erkannt und belohnt.
+   */
+  completedSets?: CardSet[];
 }
 
 /** Kauft eine Truhe, zieht Karten und prüft Set-Abschlüsse. */
@@ -383,19 +474,23 @@ export function performChest(input: GameState, chestId: string): { state: GameSt
   let state: GameState = { ...input, coins: input.coins - cost, cards };
   const result: ChestResult = { cards: drawn };
 
+  // ALLE gleichzeitig komplettierten Sets erkennen und belohnen (kein `break`):
+  // Eine Truhe kann mehrere Karten ziehen und damit mehr als ein Set auf einmal
+  // abschließen.
+  const completedSets: CardSet[] = [];
   for (const set of CARD_SETS) {
     if (state.completedSets.includes(set.name)) continue;
     if (set.cards.every((c) => (cards[c.id] ?? 0) > 0)) {
-      result.completedSet = set;
+      completedSets.push(set);
       state = {
         ...state,
         completedSets: [...state.completedSets, set.name],
         spins: state.spins + set.rewardSpins,
         coins: state.coins + set.rewardCoins,
       };
-      break;
     }
   }
+  if (completedSets.length > 0) result.completedSets = completedSets;
 
   return { state, result };
 }
@@ -474,59 +569,70 @@ export async function runAction(
   userId: string,
   action: GameAction,
 ): Promise<ActionResponse> {
-  const now = Date.now();
-  let state = await loadOrCreateState(db, userId);
+  return withVersionRetry(async () => {
+    const now = Date.now();
+    const loaded = await loadStateVersioned(db, userId);
+    let state = loaded.state;
 
-  if (action.type === "reset") {
-    state = newGame();
-    await persistState(db, userId, state);
-    return { state };
-  }
+    if (action.type === "reset") {
+      state = newGame();
+      await persistState(db, userId, state, loaded.version);
+      return { state };
+    }
 
-  // Regeneration + Bau-Fortschritt immer zuerst anwenden
-  // (serverseitig, manipulationssicher). So werden abgelaufene Bau-Timer
-  // vor jeder Aktion in "built" umgewandelt und evtl. das Dorf komplettiert.
-  state = applyRegen(state, now);
-  const progress = applyBuildProgress(state, now);
-  state = progress.state;
+    // Regeneration + Bau-Fortschritt immer zuerst anwenden
+    // (serverseitig, manipulationssicher). So werden abgelaufene Bau-Timer
+    // vor jeder Aktion in "built" umgewandelt und evtl. das Dorf komplettiert.
+    state = applyRegen(state, now);
+    const progress = applyBuildProgress(state, now);
+    state = progress.state;
 
-  const response: ActionResponse = { state };
-  if (progress.completedSlots.length > 0) response.buildsCompleted = progress.completedSlots;
-  if (progress.villageCompleted) response.villageCompleted = progress.villageCompleted;
+    const response: ActionResponse = { state };
+    if (progress.completedSlots.length > 0) response.buildsCompleted = progress.completedSlots;
+    if (progress.villageCompleted) response.villageCompleted = progress.villageCompleted;
 
-  switch (action.type) {
-    case "spin": {
-      const { state: next, result } = performSpin(state, action.bet ?? state.bet);
-      state = next;
-      response.spin = result;
-      await logSpin(db, userId, result.outcome.kind, result.coinsGained, state.bet);
-      break;
-    }
-    case "build": {
-      const { state: next, result } = performBuild(state, action.slot, now);
-      state = next;
-      response.build = result;
-      break;
-    }
-    case "chest": {
-      const { state: next, result } = performChest(state, action.chestId);
-      state = next;
-      response.chest = result;
-      break;
-    }
-    case "daily": {
-      const { state: next, result } = performDaily(state, now);
-      state = next;
-      response.daily = result;
-      break;
-    }
-    case "setBet": {
-      state = performSetBet(state, action.bet);
-      break;
-    }
-  }
+    // Ergebnis eines Spins erst NACH erfolgreichem Persist loggen (siehe unten),
+    // sonst hinterlässt eine fehlgeschlagene/konfliktbehaftete Persistenz eine
+    // Faucet-/Analytics-Geisterzeile bzw. loggt bei Retry doppelt.
+    let spinToLog: { kind: SpinOutcome["kind"]; coins: number; bet: number } | null = null;
 
-  await persistState(db, userId, state);
-  response.state = state;
-  return response;
+    switch (action.type) {
+      case "spin": {
+        const { state: next, result } = performSpin(state, action.bet ?? state.bet);
+        state = next;
+        response.spin = result;
+        spinToLog = { kind: result.outcome.kind, coins: result.coinsGained, bet: state.bet };
+        break;
+      }
+      case "build": {
+        const { state: next, result } = performBuild(state, action.slot, now);
+        state = next;
+        response.build = result;
+        break;
+      }
+      case "chest": {
+        const { state: next, result } = performChest(state, action.chestId);
+        state = next;
+        response.chest = result;
+        break;
+      }
+      case "daily": {
+        const { state: next, result } = performDaily(state, now);
+        state = next;
+        response.daily = result;
+        break;
+      }
+      case "setBet": {
+        state = performSetBet(state, action.bet);
+        break;
+      }
+    }
+
+    await persistState(db, userId, state, loaded.version);
+    if (spinToLog) {
+      await logSpin(db, userId, spinToLog.kind, spinToLog.coins, spinToLog.bet);
+    }
+    response.state = state;
+    return response;
+  });
 }

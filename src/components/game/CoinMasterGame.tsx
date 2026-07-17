@@ -101,6 +101,13 @@ export default function CoinMasterGame() {
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
 
+  // Level-Theme muss VOR den bedingten Returns (loadError/!state) berechnet
+  // werden, sonst variiert die Hook-Reihenfolge zwischen Renders
+  // ("Rendered more hooks than during the previous render"). state kann hier
+  // noch null sein → Fallback auf Dorf 0.
+  const theme = useMemo(() => getLevelTheme(state?.villageIndex ?? 0), [state?.villageIndex]);
+  const themeStyle = useMemo(() => themeCssVars(theme), [theme]);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     const to = setTimeout(() => setToast(null), 2500);
@@ -326,11 +333,12 @@ export default function CoinMasterGame() {
       const res = await api.buyChest(chest.id);
       setState(res.state);
       setOverlay({ type: "chest", chest, cards: res.chest!.cards });
-      if (res.chest?.completedSet) {
-        const set = res.chest.completedSet;
-        const to = setTimeout(() => setOverlay({ type: "set", set }), 2600);
+      // Mehrere gleichzeitig komplettierte Sets nacheinander einblenden.
+      const sets = res.chest?.completedSets ?? [];
+      sets.forEach((set, i) => {
+        const to = setTimeout(() => setOverlay({ type: "set", set }), 2600 + i * 2600);
         timeouts.current.push(to);
-      }
+      });
     });
   }
 
@@ -490,8 +498,6 @@ export default function CoinMasterGame() {
     0,
     SPIN_REGEN_SECONDS - Math.floor((now - state.lastRegenAt) / 1000),
   );
-  const theme = useMemo(() => getLevelTheme(state.villageIndex), [state.villageIndex]);
-  const themeStyle = useMemo(() => themeCssVars(theme), [theme]);
   const villagePct = Math.round((builtCount / state.items.length) * 100);
   const overallPct = Math.round(
     ((state.villageIndex + builtCount / state.items.length) / VILLAGES.length) * 100,

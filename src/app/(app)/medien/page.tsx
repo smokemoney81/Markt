@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useTable } from "@/lib/useTable";
 import type { MediaItem } from "@/lib/types";
@@ -19,7 +19,10 @@ export default function MedienPage() {
   const { rows, loading, insert, update, remove } = useTable<MediaItem>(
     "media",
   );
-  const supabase = createClient();
+  // createClient() erzeugt bei jedem Render eine neue Client-Instanz. Ohne
+  // Memoisierung ändert sich die loadUrls-Referenz (supabase in den Deps) bei
+  // jedem Render → useEffect feuert endlos und hämmert die Signed-URL-API.
+  const supabase = useMemo(() => createClient(), []);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -79,8 +82,18 @@ export default function MedienPage() {
 
   async function del(m: MediaItem) {
     if (!confirm("Datei löschen?")) return;
-    await supabase.storage.from("media").remove([m.storage_path]);
-    await remove(m.id);
+    try {
+      const { error } = await supabase.storage
+        .from("media")
+        .remove([m.storage_path]);
+      if (error) throw error;
+      await remove(m.id);
+    } catch (err) {
+      alert(
+        "Löschen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    }
   }
 
   const filtered = rows.filter((m) => {

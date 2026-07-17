@@ -85,8 +85,25 @@ export default function KontaktePage() {
       if (editId) await update(editId, payload);
       else await insert(payload);
       setOpen(false);
+    } catch (err) {
+      alert(
+        "Speichern fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function removeContact(id: string) {
+    if (!confirm("Kontakt löschen?")) return;
+    try {
+      await remove(id);
+    } catch (err) {
+      alert(
+        "Löschen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
     }
   }
 
@@ -159,7 +176,11 @@ export default function KontaktePage() {
                   </p>
                   {c.rating ? (
                     <div className="mt-1 flex items-center gap-0.5 text-yellow-300">
-                      {Array.from({ length: c.rating }).map((_, i) => (
+                      {/* Gegen ungültige Werte absichern: Array.from wirft bei
+                          negativer/nicht-ganzzahliger Länge einen RangeError. */}
+                      {Array.from({
+                        length: Math.min(5, Math.max(0, Math.floor(c.rating))),
+                      }).map((_, i) => (
                         <Star key={i} size={12} fill="currentColor" />
                       ))}
                     </div>
@@ -179,7 +200,7 @@ export default function KontaktePage() {
                     <Pencil size={16} />
                   </button>
                   <button
-                    onClick={() => confirm("Kontakt löschen?") && remove(c.id)}
+                    onClick={() => removeContact(c.id)}
                     className="rounded-lg p-2 text-gray-400 hover:bg-surface-border"
                     aria-label="Löschen"
                   >

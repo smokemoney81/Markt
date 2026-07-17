@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useTable } from "@/lib/useTable";
-import { euro, dateTime, bumpDue } from "@/lib/format";
+import { euro, dateTime, bumpDue, parseLocalDate } from "@/lib/format";
 import type { Ad, Appointment, Contact, Transaction } from "@/lib/types";
 import {
   Megaphone,
@@ -36,7 +36,7 @@ export default function DashboardPage() {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const monthTx = tx.rows.filter((t) => new Date(t.occurred_on) >= monthStart);
+  const monthTx = tx.rows.filter((t) => parseLocalDate(t.occurred_on) >= monthStart);
   const income = monthTx
     .filter((t) => t.type === "einnahme")
     .reduce((s, t) => s + Number(t.amount), 0);
@@ -50,14 +50,14 @@ export default function DashboardPage() {
       bumpDue(a.last_bumped_at, a.bump_interval_hours).overdue,
   );
 
-  const upcoming = appts.rows
-    .filter(
-      (a) =>
-        new Date(a.starts_at) >= new Date(Date.now() - 3600 * 1000) &&
-        a.status !== "abgesagt" &&
-        a.status !== "no_show",
-    )
-    .slice(0, 4);
+  const upcomingAll = appts.rows.filter(
+    (a) =>
+      new Date(a.starts_at) >= new Date(Date.now() - 3600 * 1000) &&
+      a.status !== "abgesagt" &&
+      a.status !== "no_show",
+  );
+  // Zähler nutzt die volle Menge; die Vorschauliste nur die ersten 4.
+  const upcoming = upcomingAll.slice(0, 4);
 
   const stammkunden = contacts.rows.filter(
     (c) => c.status === "stammkunde",
@@ -109,7 +109,7 @@ export default function DashboardPage() {
                 {dueAds.length} Anzeige{dueAds.length > 1 ? "n" : ""} fällig
               </p>
               <p className="text-sm text-yellow-200/70">
-                Jetzt „nach oben schieben"
+                Jetzt „nach oben schieben&ldquo;
               </p>
             </div>
             <ChevronRight className="text-yellow-300" size={20} />
@@ -135,7 +135,7 @@ export default function DashboardPage() {
             href="/termine"
             icon={<CalendarDays size={18} />}
             label="Kommende Termine"
-            value={upcoming.length}
+            value={upcomingAll.length}
           />
           <StatTile
             href="/finanzen"

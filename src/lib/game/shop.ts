@@ -14,7 +14,12 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MAX_SHIELDS, type GameState } from "./coinmaster";
-import { GameError, loadOrCreateState, persistState } from "./server";
+import {
+  GameError,
+  loadStateVersioned,
+  persistState,
+  withVersionRetry,
+} from "./server";
 
 // ---------- Belohnungen ----------
 
@@ -138,24 +143,75 @@ export interface RewardResult {
   status: RewardStatus;
 }
 
-/** Löst eine gedeckelte Gratis-Belohnung ein (Rewarded Loop). */
+/**
+ * Löst eine gedeckelte Gratis-Belohnung ein (Rewarded Loop).
+ *
+ * Nebenläufigkeitssicher über „Reserve-first": Statt erst zu zählen und dann
+ * zu schreiben (TOCTOU – zwei parallele Requests umgehen das Cap), wird die
+ * Log-Zeile ZUERST eingefügt und anschließend geprüft, wie viele reward-Zeilen
+ * heute VOR ihr liegen. Ist dieser Rang bereits ≥ Cap, wird die Reservierung
+ * zurückgenommen und abgelehnt. So kann das Tageslimit nicht überschritten
+ * werden. Die eigentliche Gutschrift erfolgt erst nach erfolgreicher
+ * Reservierung – über den Version-Guard (optimistisches Locking).
+ */
 export async function claimReward(db: SupabaseClient, userId: string, adToken?: string): Promise<RewardResult> {
   const now = Date.now();
-  const before = await rewardStatus(db, userId, now);
-  if (before.remaining <= 0) {
-    throw new GameError("TAGESLIMIT_ERREICHT", "Tageslimit für Gratis-Belohnungen erreicht.");
-  }
   // Seam: sobald ein Ad-Netzwerk aktiv ist, hier den Completion-Token prüfen.
   await verifyAdToken(adToken);
 
-  const state = applyGrant(await loadOrCreateState(db, userId), REWARD_GRANT);
-  await persistState(db, userId, state);
-  await logReward(db, userId, "reward", REWARD_GRANT);
+  const dayStart = startOfUtcDayIso(now);
 
+  // 1. Reservierung: Log-Zeile (= Cap-Nachweis) zuerst einfügen und zurücklesen.
+  const { data: reserved, error: insErr } = await db
+    .from("game_reward_log")
+    .insert({
+      user_id: userId,
+      kind: "reward",
+      product_id: null,
+      coins: REWARD_GRANT.coins ?? 0,
+      spins: REWARD_GRANT.spins ?? 0,
+      shields: REWARD_GRANT.shields ?? 0,
+    })
+    .select("id, created_at")
+    .single();
+  if (insErr) throw insErr;
+  if (!reserved) throw new GameError("RESERVIERUNG_FEHLGESCHLAGEN", "Belohnung konnte nicht reserviert werden.");
+
+  const reservation = reserved as { id: string; created_at: string };
+
+  // 2. Wie viele reward-Zeilen liegen heute VOR meiner Reservierung?
+  const { count, error: cntErr } = await db
+    .from("game_reward_log")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("kind", "reward")
+    .gte("created_at", dayStart)
+    .lt("created_at", reservation.created_at);
+  if (cntErr) {
+    await db.from("game_reward_log").delete().eq("id", reservation.id);
+    throw cntErr;
+  }
+
+  const priorToday = count ?? 0;
+  if (priorToday >= REWARD_DAILY_CAP) {
+    // 3. Über dem Limit → Reservierung zurücknehmen, ablehnen.
+    await db.from("game_reward_log").delete().eq("id", reservation.id);
+    throw new GameError("TAGESLIMIT_ERREICHT", "Tageslimit für Gratis-Belohnungen erreicht.");
+  }
+
+  // 4. Erst nach gültiger Reservierung gutschreiben (optimistisches Locking).
+  const state = await withVersionRetry(async () => {
+    const loaded = await loadStateVersioned(db, userId);
+    const next = applyGrant(loaded.state, REWARD_GRANT);
+    await persistState(db, userId, next, loaded.version);
+    return next;
+  });
+
+  const usedToday = priorToday + 1;
   const status: RewardStatus = {
-    usedToday: before.usedToday + 1,
+    usedToday,
     cap: REWARD_DAILY_CAP,
-    remaining: before.remaining - 1,
+    remaining: Math.max(0, REWARD_DAILY_CAP - usedToday),
   };
   return { state, grant: REWARD_GRANT, status };
 }
@@ -183,9 +239,14 @@ export async function assertNotOwned(db: SupabaseClient, userId: string, product
 
 /**
  * Verbucht einen (bereits bezahlten) Kauf und schreibt die Gegenstände gut.
- * Idempotent über `unique(provider, provider_ref)`: Der Kauf wird ZUERST
- * eingefügt – schlägt das mit Unique-Konflikt fehl (z. B. Stripe-Webhook-
- * Retry), wurde bereits gewährt und es passiert nichts weiter.
+ * Doppel-Gutschriften werden DB-seitig verhindert (Insert-first, dann Grant):
+ *   - `unique(provider, provider_ref)` (nulls not distinct) fängt Retries
+ *     desselben Zahlungsvorgangs ab (z. B. Stripe-Webhook-Retry).
+ *   - der partielle `unique(user_id, product_id)`-Index (Migration 0009) fängt
+ *     Einmal-Produkte ab, selbst wenn ein zweiter Kauf eine NEUE provider_ref
+ *     hätte.
+ * In beiden Fällen liefert der Insert 23505 → der Kauf gilt als bereits
+ * gewährt und es passiert nichts weiter (idempotent).
  *
  * Aufrufer garantiert, dass die Zahlung verifiziert ist (Test-Modus oder
  * signierter Stripe-Webhook).
@@ -208,12 +269,17 @@ export async function recordAndGrant(
     status: "granted",
   });
   if (insErr) {
-    if (insErr.code === "23505") return { alreadyGranted: true }; // Duplikat → schon gewährt
+    if (insErr.code === "23505") return { alreadyGranted: true }; // Duplikat/Einmal-Produkt → schon gewährt
     throw insErr;
   }
 
-  const state = applyGrant(await loadOrCreateState(db, userId), product.grant);
-  await persistState(db, userId, state);
+  // Gutschrift atomar über den Version-Guard (optimistisches Locking).
+  const state = await withVersionRetry(async () => {
+    const loaded = await loadStateVersioned(db, userId);
+    const next = applyGrant(loaded.state, product.grant);
+    await persistState(db, userId, next, loaded.version);
+    return next;
+  });
   await logReward(db, userId, "purchase", product.grant, product.id);
   return { state, alreadyGranted: false };
 }

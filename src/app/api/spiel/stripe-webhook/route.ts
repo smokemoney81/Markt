@@ -33,13 +33,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Ungültige Signatur." }, { status: 400 });
   }
 
-  if (event.type === "checkout.session.completed") {
+  // Beide Events, bei denen die Zahlung tatsächlich eingegangen ist:
+  // - checkout.session.completed: Sofortzahlung (Karte etc.)
+  // - checkout.session.async_payment_succeeded: verzögerte Methoden
+  //   (z. B. SEPA-Lastschrift), die erst später „paid" werden.
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded"
+  ) {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    // Nur gutschreiben, wenn wirklich bezahlt wurde. `completed` feuert auch
+    // für Sessions mit noch offener asynchroner Zahlung (payment_status
+    // 'unpaid') – diese dürfen NICHT gutgeschrieben werden.
+    if (session.payment_status !== "paid") {
+      console.warn("Stripe-Webhook ohne bezahlten Status ignoriert:", session.id, session.payment_status);
+      return NextResponse.json({ received: true });
+    }
+
     const userId = session.metadata?.userId;
     const productId = session.metadata?.productId;
     const product = SHOP_PRODUCTS.find((p) => p.id === productId);
 
     if (userId && product) {
+      // Betrag gegen den Katalogpreis abgleichen: Bei Manipulation der Session
+      // (falscher Betrag) NICHT gutschreiben, sondern nur protokollieren.
+      const amountTotal = session.amount_total ?? 0;
+      if (amountTotal !== product.priceCents) {
+        console.error(
+          "Stripe-Webhook: Betrag weicht vom Katalogpreis ab, keine Gutschrift.",
+          { session: session.id, product: product.id, amountTotal, expected: product.priceCents },
+        );
+        return NextResponse.json({ received: true });
+      }
+
       try {
         await recordAndGrant(
           createServiceClient(),
@@ -47,7 +74,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           product,
           "stripe",
           session.id,
-          session.amount_total ?? product.priceCents,
+          amountTotal,
         );
       } catch (err) {
         // Fehler NICHT als 2xx quittieren → Stripe wiederholt (Gutschrift ist idempotent).
