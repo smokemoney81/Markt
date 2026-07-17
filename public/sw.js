@@ -1,7 +1,7 @@
 // Minimaler Service Worker für die PWA (installierbar + Basis-Offline).
 // Cache-Version bei relevanten Änderungen erhöhen -> alte Caches werden
 // beim Aktivieren automatisch gelöscht.
-const CACHE = "markt-dashboard-v2";
+const CACHE = "markt-dashboard-v3";
 const APP_SHELL = ["/", "/manifest.json", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -43,9 +43,20 @@ self.addEventListener("fetch", (event) => {
   // Versionen sofort erscheinen; Cache nur als Offline-Fallback.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() =>
-        caches.match(request).then((r) => r || caches.match("/")),
-      ),
+      fetch(request).catch(async () => {
+        // Offline-Fallback: erst die konkrete Seite, dann die App-Shell.
+        // Wichtig: Niemals `undefined` zurückgeben (sonst wirft respondWith
+        // "Failed to convert value to 'Response'").
+        const cached = (await caches.match(request)) || (await caches.match("/"));
+        return (
+          cached ||
+          new Response("Offline", {
+            status: 503,
+            statusText: "Offline",
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        );
+      }),
     );
     return;
   }
