@@ -101,6 +101,8 @@ supabase/migrations/0003_shop.sql   # Monetarisierung (game_reward_log, game_pur
 supabase/migrations/0004_analytics.sql  # KPI-Aggregat-Funktion game_analytics()
 supabase/migrations/0005_streak.sql # Tagesbonus-Streak (Spalte game_state.daily_streak)
 supabase/migrations/0006_build_time.sql # Bauzeit-Mechanik (Spalte game_state.item_builds)
+supabase/migrations/0007_phases_5_16.sql # Social/Season/VIP/Progression (Clans, Bestenlisten, …)
+supabase/migrations/0008_rls_social.sql # RLS + SELECT-Policies für die 0007-Tabellen
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool
