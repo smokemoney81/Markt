@@ -82,8 +82,18 @@ export default function MedienPage() {
 
   async function del(m: MediaItem) {
     if (!confirm("Datei löschen?")) return;
-    await supabase.storage.from("media").remove([m.storage_path]);
-    await remove(m.id);
+    try {
+      const { error } = await supabase.storage
+        .from("media")
+        .remove([m.storage_path]);
+      if (error) throw error;
+      await remove(m.id);
+    } catch (err) {
+      alert(
+        "Löschen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    }
   }
 
   const filtered = rows.filter((m) => {

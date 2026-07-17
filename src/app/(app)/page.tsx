@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useTable } from "@/lib/useTable";
-import { euro, dateTime, bumpDue } from "@/lib/format";
+import { euro, dateTime, bumpDue, parseLocalDate } from "@/lib/format";
 import type { Ad, Appointment, Contact, Transaction } from "@/lib/types";
 import {
   Megaphone,
@@ -36,7 +36,7 @@ export default function DashboardPage() {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const monthTx = tx.rows.filter((t) => new Date(t.occurred_on) >= monthStart);
+  const monthTx = tx.rows.filter((t) => parseLocalDate(t.occurred_on) >= monthStart);
   const income = monthTx
     .filter((t) => t.type === "einnahme")
     .reduce((s, t) => s + Number(t.amount), 0);

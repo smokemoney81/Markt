@@ -78,13 +78,37 @@ export default function AnzeigenPage() {
       if (editId) await update(editId, payload);
       else await insert(payload);
       setOpen(false);
+    } catch (err) {
+      alert(
+        "Speichern fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function bumpNow(a: Ad) {
-    await update(a.id, { last_bumped_at: new Date().toISOString() });
+    try {
+      await update(a.id, { last_bumped_at: new Date().toISOString() });
+    } catch (err) {
+      alert(
+        "Hochschieben fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    }
+  }
+
+  async function removeAd(id: string) {
+    if (!confirm("Anzeige löschen?")) return;
+    try {
+      await remove(id);
+    } catch (err) {
+      alert(
+        "Löschen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    }
   }
 
   return (
@@ -146,7 +170,7 @@ export default function AnzeigenPage() {
                     <Pencil size={16} />
                   </button>
                   <button
-                    onClick={() => confirm("Anzeige löschen?") && remove(a.id)}
+                    onClick={() => removeAd(a.id)}
                     className="rounded-lg p-2 text-gray-400 hover:bg-surface-border"
                     aria-label="Löschen"
                   >

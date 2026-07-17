@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useTable } from "@/lib/useTable";
-import { euro, dateShort } from "@/lib/format";
+import { euro, dateShort, parseLocalDate, todayIso } from "@/lib/format";
 import type { Transaction, TransactionType } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import { Sheet, Field, EmptyState } from "@/components/ui";
@@ -24,7 +24,7 @@ const empty = () => ({
   amount: "",
   category: "service",
   description: "",
-  occurred_on: new Date().toISOString().slice(0, 10),
+  occurred_on: todayIso(),
 });
 
 export default function FinanzenPage() {
@@ -43,7 +43,7 @@ export default function FinanzenPage() {
   }, [monthOffset]);
 
   const monthRows = rows.filter((t) => {
-    const d = new Date(t.occurred_on);
+    const d = parseLocalDate(t.occurred_on);
     return (
       d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
     );
@@ -73,6 +73,11 @@ export default function FinanzenPage() {
         occurred_on: form.occurred_on,
       });
       setOpen(false);
+    } catch (err) {
+      alert(
+        "Speichern fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
     } finally {
       setSaving(false);
     }

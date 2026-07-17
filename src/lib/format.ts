@@ -21,8 +21,35 @@ export function dateTime(value: string | Date): string {
 }
 
 export function dateShort(value: string | Date): string {
-  const d = typeof value === "string" ? new Date(value) : value;
+  const d = typeof value === "string" ? parseLocalDate(value) : value;
   return format(d, "dd.MM.yyyy", { locale: de });
+}
+
+/**
+ * Heutiges Datum als lokaler `YYYY-MM-DD`-String. `new Date().toISOString()`
+ * nutzt UTC und würde je nach Zeitzone einen Tag daneben liegen.
+ */
+export function todayIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Parst einen Datum-String als LOKALES Datum. Ein reiner `YYYY-MM-DD`-String
+ * würde von `new Date(...)` als UTC-Mitternacht interpretiert – in negativen
+ * Zeitzonen landet er dadurch im Vortag/Vormonat. Diese Funktion baut das
+ * Datum aus den Komponenten lokal auf; Strings mit Zeitanteil bleiben
+ * unverändert (`new Date`).
+ */
+export function parseLocalDate(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+  return new Date(value);
 }
 
 export function fromNow(value: string | Date): string {

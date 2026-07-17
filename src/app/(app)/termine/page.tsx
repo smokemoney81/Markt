@@ -58,6 +58,7 @@ export default function TerminePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(empty());
   const [saving, setSaving] = useState(false);
+  const [bookingId, setBookingId] = useState<string | null>(null);
 
   const contactName = (id: string | null) =>
     contacts.rows.find((c) => c.id === id)?.name;
@@ -103,27 +104,65 @@ export default function TerminePage() {
       if (editId) await appts.update(editId, payload);
       else await appts.insert(payload);
       setOpen(false);
+    } catch (err) {
+      alert(
+        "Speichern fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  // Termin als erledigt markieren und als Einnahme verbuchen
+  // Termin als erledigt markieren und als Einnahme verbuchen.
+  // Gegen Doppelbuchung abgesichert: laufende Buchung sperrt Mehrfachklicks,
+  // die Einnahme wird nur bei erfolgreichem Insert als "erledigt" markiert,
+  // und 0-€-Buchungen werden abgelehnt.
   async function bookIncome(a: Appointment) {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    await supabase.from("transactions").insert({
-      user_id: user?.id,
-      type: "einnahme",
-      amount: a.price ?? 0,
-      category: "service",
-      description: `Termin: ${a.title || contactName(a.contact_id) || "Buchung"}`,
-      occurred_on: a.starts_at.slice(0, 10),
-      appointment_id: a.id,
-    });
-    await appts.update(a.id, { status: "erledigt" });
+    if (bookingId) return; // es läuft bereits eine Buchung
+    if (a.status === "erledigt") return; // bereits verbucht
+    const price = a.price ?? 0;
+    if (!price || price <= 0) {
+      alert("Für diesen Termin ist kein Preis (> 0 €) hinterlegt.");
+      return;
+    }
+    setBookingId(a.id);
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const { error: insErr } = await supabase.from("transactions").insert({
+        user_id: user?.id,
+        type: "einnahme",
+        amount: price,
+        category: "service",
+        description: `Termin: ${a.title || contactName(a.contact_id) || "Buchung"}`,
+        occurred_on: a.starts_at.slice(0, 10),
+        appointment_id: a.id,
+      });
+      if (insErr) throw insErr;
+      await appts.update(a.id, { status: "erledigt" });
+    } catch (err) {
+      alert(
+        "Verbuchen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    } finally {
+      setBookingId(null);
+    }
+  }
+
+  async function removeAppt(id: string) {
+    if (!confirm("Termin löschen?")) return;
+    try {
+      await appts.remove(id);
+    } catch (err) {
+      alert(
+        "Löschen fehlgeschlagen: " +
+          (err instanceof Error ? err.message : "Unbekannter Fehler"),
+      );
+    }
   }
 
   const now = Date.now();
@@ -163,10 +202,9 @@ export default function TerminePage() {
                 a={a}
                 name={contactName(a.contact_id)}
                 onEdit={() => openEdit(a)}
-                onDelete={() =>
-                  confirm("Termin löschen?") && appts.remove(a.id)
-                }
+                onDelete={() => removeAppt(a.id)}
                 onBook={() => bookIncome(a)}
+                booking={bookingId === a.id}
               />
             ))}
           </Section>
@@ -180,10 +218,9 @@ export default function TerminePage() {
                 a={a}
                 name={contactName(a.contact_id)}
                 onEdit={() => openEdit(a)}
-                onDelete={() =>
-                  confirm("Termin löschen?") && appts.remove(a.id)
-                }
+                onDelete={() => removeAppt(a.id)}
                 onBook={() => bookIncome(a)}
+                booking={bookingId === a.id}
               />
             ))}
           </Section>
@@ -331,12 +368,14 @@ function ApptCard({
   onEdit,
   onDelete,
   onBook,
+  booking,
 }: {
   a: Appointment;
   name?: string;
   onEdit: () => void;
   onDelete: () => void;
   onBook: () => void;
+  booking?: boolean;
 }) {
   const st = STATUS.find((s) => s.value === a.status)!;
   return (
@@ -391,9 +430,11 @@ function ApptCard({
       {a.status !== "erledigt" && a.price ? (
         <button
           onClick={onBook}
-          className="btn-ghost mt-3 w-full !py-1.5 text-xs"
+          disabled={booking}
+          className="btn-ghost mt-3 w-full !py-1.5 text-xs disabled:opacity-50"
         >
-          <CircleDollarSign size={14} /> Als Einnahme verbuchen ({euro(a.price)})
+          <CircleDollarSign size={14} />{" "}
+          {booking ? "Verbucht…" : `Als Einnahme verbuchen (${euro(a.price)})`}
         </button>
       ) : null}
     </div>
