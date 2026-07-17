@@ -76,9 +76,17 @@ function errMsg(e: unknown): string {
   return e instanceof GameApiError ? e.message : "Verbindungsfehler.";
 }
 
+/** Ladefehler mit Fehlercode, damit die UI passend reagieren kann (Login vs. Config vs. Retry). */
+type LoadError = { code: string; message: string };
+
+function toLoadError(e: unknown): LoadError {
+  if (e instanceof GameApiError) return { code: e.code, message: e.message };
+  return { code: "VERBINDUNG", message: "Verbindungsfehler." };
+}
+
 export default function CoinMasterGame() {
   const [state, setState] = useState<GameState | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [pending, setPending] = useState(false);
   const [reels, setReels] = useState<SlotSymbol[]>(["coin", "energy", "bag"]);
   const [spinningReels, setSpinningReels] = useState<boolean[]>([false, false, false]);
@@ -100,13 +108,11 @@ export default function CoinMasterGame() {
   }, []);
 
   // ----- Laden vom Server (autoritativ) + Offline-Ereignisse -----
-  useEffect(() => {
-    const timeoutRef = timeouts.current;
-    let active = true;
-    api
+  const loadState = useCallback(() => {
+    setLoadError(null);
+    return api
       .fetchState()
       .then((res) => {
-        if (!active) return;
         setState(res.state);
         if (res.villageCompleted) {
           setOverlay({ type: "village", ...res.villageCompleted });
@@ -114,12 +120,16 @@ export default function CoinMasterGame() {
           setOverlay({ type: "offline", news: res.news });
         }
       })
-      .catch((e) => active && setLoadError(errMsg(e)));
+      .catch((e) => setLoadError(toLoadError(e)));
+  }, []);
+
+  useEffect(() => {
+    const timeoutRef = timeouts.current;
+    loadState();
     return () => {
-      active = false;
       timeoutRef.forEach(clearTimeout);
     };
-  }, []);
+  }, [loadState]);
 
   // ----- Rückkehr von der Stripe-Bezahlseite -----
   useEffect(() => {
@@ -434,15 +444,34 @@ export default function CoinMasterGame() {
   }
 
   if (loadError) {
+    const notLoggedIn = loadError.code === "NICHT_ANGEMELDET";
+    const notConfigured = loadError.code === "NICHT_KONFIGURIERT";
     return (
       <div className="mx-4 mt-8 rounded-2xl border border-surface-border bg-surface-card p-5 text-center text-sm text-gray-300">
         <p className="font-semibold text-rose-300">Spiel konnte nicht geladen werden</p>
-        <p className="mt-2 text-gray-400">{loadError}</p>
-        <p className="mt-2 text-xs text-gray-500">
-          Der Spielstand liegt jetzt serverseitig. Prüfe, ob{" "}
-          <code>SUPABASE_SERVICE_ROLE_KEY</code> gesetzt und die Migration{" "}
-          <code>0002_game.sql</code> ausgeführt ist.
+        <p className="mt-2 text-gray-400">
+          {notLoggedIn ? "Deine Sitzung ist abgelaufen." : loadError.message}
         </p>
+        {notLoggedIn ? (
+          <>
+            <p className="mt-2 text-xs text-gray-500">
+              Bitte melde dich neu an – dein Spielstand liegt serverseitig bereit.
+            </p>
+            <a href="/login" className="btn-primary mt-4 inline-flex">
+              Neu anmelden
+            </a>
+          </>
+        ) : notConfigured ? (
+          <p className="mt-2 text-xs text-gray-500">
+            Der Spielstand liegt serverseitig. Prüfe, ob{" "}
+            <code>SUPABASE_SERVICE_ROLE_KEY</code> gesetzt und die Migration{" "}
+            <code>0002_game.sql</code> ausgeführt ist.
+          </p>
+        ) : (
+          <button onClick={loadState} className="btn-primary mt-4 inline-flex">
+            Erneut versuchen
+          </button>
+        )}
       </div>
     );
   }
