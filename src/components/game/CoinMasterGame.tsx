@@ -333,11 +333,12 @@ export default function CoinMasterGame() {
       const res = await api.buyChest(chest.id);
       setState(res.state);
       setOverlay({ type: "chest", chest, cards: res.chest!.cards });
-      if (res.chest?.completedSet) {
-        const set = res.chest.completedSet;
-        const to = setTimeout(() => setOverlay({ type: "set", set }), 2600);
+      // Mehrere gleichzeitig komplettierte Sets nacheinander einblenden.
+      const sets = res.chest?.completedSets ?? [];
+      sets.forEach((set, i) => {
+        const to = setTimeout(() => setOverlay({ type: "set", set }), 2600 + i * 2600);
         timeouts.current.push(to);
-      }
+      });
     });
   }
 

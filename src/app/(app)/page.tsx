@@ -50,14 +50,14 @@ export default function DashboardPage() {
       bumpDue(a.last_bumped_at, a.bump_interval_hours).overdue,
   );
 
-  const upcoming = appts.rows
-    .filter(
-      (a) =>
-        new Date(a.starts_at) >= new Date(Date.now() - 3600 * 1000) &&
-        a.status !== "abgesagt" &&
-        a.status !== "no_show",
-    )
-    .slice(0, 4);
+  const upcomingAll = appts.rows.filter(
+    (a) =>
+      new Date(a.starts_at) >= new Date(Date.now() - 3600 * 1000) &&
+      a.status !== "abgesagt" &&
+      a.status !== "no_show",
+  );
+  // Zähler nutzt die volle Menge; die Vorschauliste nur die ersten 4.
+  const upcoming = upcomingAll.slice(0, 4);
 
   const stammkunden = contacts.rows.filter(
     (c) => c.status === "stammkunde",
@@ -135,7 +135,7 @@ export default function DashboardPage() {
             href="/termine"
             icon={<CalendarDays size={18} />}
             label="Kommende Termine"
-            value={upcoming.length}
+            value={upcomingAll.length}
           />
           <StatTile
             href="/finanzen"

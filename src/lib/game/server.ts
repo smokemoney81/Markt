@@ -448,7 +448,12 @@ export function performBuild(
 
 export interface ChestResult {
   cards: Card[];
-  completedSet?: CardSet;
+  /**
+   * ALLE Sets, die durch diese Truhe gleichzeitig komplettiert wurden. Eine
+   * Truhe kann mehrere Karten ziehen und damit mehr als ein Set auf einmal
+   * abschließen – alle werden erkannt und belohnt.
+   */
+  completedSets?: CardSet[];
 }
 
 /** Kauft eine Truhe, zieht Karten und prüft Set-Abschlüsse. */
@@ -469,19 +474,23 @@ export function performChest(input: GameState, chestId: string): { state: GameSt
   let state: GameState = { ...input, coins: input.coins - cost, cards };
   const result: ChestResult = { cards: drawn };
 
+  // ALLE gleichzeitig komplettierten Sets erkennen und belohnen (kein `break`):
+  // Eine Truhe kann mehrere Karten ziehen und damit mehr als ein Set auf einmal
+  // abschließen.
+  const completedSets: CardSet[] = [];
   for (const set of CARD_SETS) {
     if (state.completedSets.includes(set.name)) continue;
     if (set.cards.every((c) => (cards[c.id] ?? 0) > 0)) {
-      result.completedSet = set;
+      completedSets.push(set);
       state = {
         ...state,
         completedSets: [...state.completedSets, set.name],
         spins: state.spins + set.rewardSpins,
         coins: state.coins + set.rewardCoins,
       };
-      break;
     }
   }
+  if (completedSets.length > 0) result.completedSets = completedSets;
 
   return { state, result };
 }
