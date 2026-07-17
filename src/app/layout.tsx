@@ -12,6 +12,11 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Markt",
   },
+  other: {
+    // Moderne Entsprechung zu `apple-mobile-web-app-capable` (das von Chrome
+    // als veraltet gemeldet wird).
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
