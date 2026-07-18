@@ -5,38 +5,40 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
-  Megaphone,
-  Users,
-  CalendarDays,
-  Wallet,
-  Images,
   Gamepad2,
-  Grid3x3,
+  ShoppingBag,
+  Layers,
+  Users,
+  Trophy,
+  Newspaper,
+  Bell,
+  Settings,
+  User,
   Menu,
   X,
 } from "lucide-react";
 
 const items = [
   { href: "/", label: "Start", icon: LayoutDashboard },
-  { href: "/anzeigen", label: "Anzeigen", icon: Megaphone },
-  { href: "/kontakte", label: "Kontakte", icon: Users },
-  { href: "/termine", label: "Termine", icon: CalendarDays },
-  { href: "/finanzen", label: "Finanzen", icon: Wallet },
-  { href: "/medien", label: "Medien", icon: Images },
   { href: "/spiel", label: "Spiel", icon: Gamepad2 },
-  { href: "/aether", label: "Aether", icon: Grid3x3 },
+  { href: "/feed", label: "Feed", icon: Newspaper },
+  { href: "/shop", label: "Shop", icon: ShoppingBag },
+  { href: "/karten", label: "Karten", icon: Layers },
+  { href: "/freunde", label: "Freunde", icon: Users },
+  { href: "/achievements", label: "Erfolge", icon: Trophy },
+  { href: "/benachrichtigungen", label: "News", icon: Bell },
+  { href: "/profil", label: "Profil", icon: User },
+  { href: "/einstellungen", label: "Optionen", icon: Settings },
 ];
 
 export default function NavFab() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // Menü bei Seitenwechsel schließen.
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
-  // Body-Scroll sperren, solange das Menü offen ist.
   useEffect(() => {
     if (!open) return;
     document.body.style.overflow = "hidden";
@@ -47,7 +49,6 @@ export default function NavFab() {
 
   return (
     <>
-      {/* Overlay + Menü-Panel */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
@@ -84,9 +85,8 @@ export default function NavFab() {
         </div>
       )}
 
-      {/* Floating Action Button */}
       <button
-        aria-label={open ? "Menü schließen" : "Menü öffnen"}
+        aria-label={open ? "Menu schliessen" : "Menu offnen"}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className="fixed right-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-50 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-black/40 transition active:scale-90 hover:bg-brand-dark"
