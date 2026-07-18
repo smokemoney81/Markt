@@ -570,20 +570,27 @@ export default function CoinMasterGame() {
 
       {tab === "game" && state && (
         <>
-          {/* ---------- Kopfzeile mit Ressourcen ---------- */}
-      <div className="mb-4 grid grid-cols-4 gap-2">
-        <StatPill emoji="🪙" label="Münzen" value={fmt(state.coins)} />
-        <StatPill
-          emoji="⚡"
-          label={
-            state.spins >= MAX_SPINS
-              ? "Spins voll"
-              : `+1 in ${Math.floor(regenIn / 60)}:${String(regenIn % 60).padStart(2, "0")}`
-          }
-          value={`${state.spins}`}
-        />
-        <StatPill emoji="🛡️" label="Schilde" value={`${state.shields}/${MAX_SHIELDS}`} />
-        <StatPill emoji="⭐" label="Sterne" value={`${state.stars}`} />
+          {/* ---------- Kopfzeile mit großer Münz-Anzeige ---------- */}
+      <div className="mb-4">
+        {/* Prominente Münz-Anzeige */}
+        <div className="rounded-2xl border-2 border-yellow-500/50 bg-yellow-500/10 px-4 py-3 mb-3 text-center animate-pulse">
+          <p className="text-sm text-yellow-400 font-semibold mb-1">💰 Münzen</p>
+          <p className="text-4xl font-black text-yellow-300">{fmt(state.coins)}</p>
+        </div>
+        {/* Ressourcen-Grid */}
+        <div className="grid grid-cols-3 gap-2">
+          <StatPill
+            emoji="⚡"
+            label={
+              state.spins >= MAX_SPINS
+                ? "Spins voll"
+                : `+1 in ${Math.floor(regenIn / 60)}:${String(regenIn % 60).padStart(2, "0")}`
+            }
+            value={`${state.spins}`}
+          />
+          <StatPill emoji="🛡️" label="Schilde" value={`${state.shields}/${MAX_SHIELDS}`} />
+          <StatPill emoji="⭐" label="Sterne" value={`${state.stars}`} />
+        </div>
       </div>
 
       {/* ---------- Fortschritt: aktuelles Dorf & Gesamt ---------- */}
@@ -692,71 +699,75 @@ export default function CoinMasterGame() {
           </h2>
           <span className="text-sm text-gray-400">{builtCount}/5 gebaut</span>
         </div>
-        <div className="space-y-2">
+        <div className="grid grid-cols-5 gap-2">
           {village.items.map((item, slot) => {
             const st = state.items[slot];
             const job = state.itemBuilds[slot];
+            const level = state.itemLevels[slot] ?? (st === "built" ? 1 : 0);
+            const isMaxed = st === "built" && level >= 50;
+            const nextLevel = Math.min(50, level + 1);
             const cost =
               st === "damaged"
-                ? repairCost(state.villageIndex, slot)
-                : itemCost(state.villageIndex, slot);
+                ? repairCost(state.villageIndex, slot, level)
+                : st === "built"
+                  ? itemCost(state.villageIndex, slot, level)
+                  : itemCost(state.villageIndex, slot, 1);
+            const bonus = st === "built" ? buildingBonusMultiplier(level) : 1;
             const showBuilding = job !== undefined;
             const secondsLeft = job ? Math.max(0, Math.ceil((job.doneAt - now) / 1000)) : 0;
+            const progress = job ? Math.max(0, Math.min(100, 100 - (secondsLeft / (buildDurationSeconds(state.villageIndex, slot, job.repair))) * 100)) : 0;
+
             return (
-              <div key={item.name} className="card flex items-center gap-3 py-3">
+              <button
+                key={item.name}
+                onClick={() => !showBuilding && st !== "built" && buildOrRepair(slot)}
+                disabled={state.coins < cost || pending || showBuilding || st === "built"}
+                className={`aspect-square rounded-lg border-2 transition-all flex flex-col items-center justify-center p-2 text-center relative overflow-hidden ${
+                  st === "built"
+                    ? "border-emerald-500/50 bg-emerald-500/10 hover:border-emerald-400"
+                    : st === "damaged"
+                      ? "border-rose-500/50 bg-rose-500/10"
+                      : "border-zinc-700 bg-zinc-900 hover:border-emerald-500/50"
+                }`}
+              >
+                {/* Progress-Bar für Bau */}
+                {showBuilding && (
+                  <div className="absolute inset-0 bg-yellow-400/20" style={{ width: `${progress}%` }} />
+                )}
+
+                {/* Icon */}
                 <span
-                  className={`text-3xl ${
-                    showBuilding
-                      ? "animate-pulse"
-                      : st === "damaged"
-                        ? "grayscale"
-                        : st === "none"
-                          ? "opacity-30"
-                          : ""
-                  }`}
+                  className={`text-2xl ${showBuilding ? "animate-pulse" : ""} ${st === "damaged" ? "opacity-50 grayscale" : st === "none" ? "opacity-30" : ""} relative z-10`}
                 >
                   {showBuilding ? "🚧" : st === "damaged" ? "💥" : item.emoji}
                 </span>
-                <div className="flex-1">
-                  <p className="font-medium">{item.name}</p>
-                  {showBuilding ? (
-                    <div className="mt-1">
-                      <p className="mb-0.5 flex items-center gap-1 text-xs text-yellow-300">
-                        <Timer size={11} />
-                        {job.repair ? "Reparatur" : "Bau"} läuft · noch{" "}
-                        {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+
+                {/* Name & Level */}
+                <p className="text-xs font-bold mt-1 relative z-10">{item.name}</p>
+                {st === "built" && (
+                  <>
+                    <p className="text-xs text-emerald-300 relative z-10">Lv. {level}/{isMaxed ? level : nextLevel}</p>
+                    {bonus > 1 && (
+                      <p className="text-xs text-green-300 flex items-center gap-0.5 relative z-10">
+                        <TrendingUp size={9} />
+                        +{Math.round((bonus - 1) * 100)}%
                       </p>
-                      <BuildBar job={job} slot={slot} villageIndex={state.villageIndex} now={now} />
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-400">
-                      {st === "built" && (
-                        <span className="text-emerald-300">
-                          <Star size={11} className="mr-0.5 inline" />
-                          Gebaut
-                        </span>
-                      )}
-                      {st === "damaged" && (
-                        <span className="text-rose-300">Zerstört – Reparatur {fmt(cost)}</span>
-                      )}
-                      {st === "none" && <>Kosten: {fmt(cost)} 🪙 · {buildDurationSeconds(state.villageIndex, slot)}s</>}
-                    </p>
-                  )}
-                </div>
-                {!showBuilding && st !== "built" && (
-                  <button
-                    onClick={() => buildOrRepair(slot)}
-                    disabled={state.coins < cost || pending}
-                    className={`btn shrink-0 px-3 py-1.5 text-xs ${
-                      st === "damaged"
-                        ? "bg-rose-500/20 text-rose-300 disabled:opacity-40"
-                        : "bg-emerald-500/20 text-emerald-300 disabled:opacity-40"
-                    }`}
-                  >
-                    {st === "damaged" ? "Reparieren" : "Bauen"}
-                  </button>
+                    )}
+                  </>
                 )}
-              </div>
+
+                {/* Bau-Info */}
+                {showBuilding && (
+                  <p className="text-[9px] text-yellow-300 relative z-10 mt-0.5">
+                    {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+                  </p>
+                )}
+
+                {/* Kosten */}
+                {!showBuilding && st !== "built" && (
+                  <p className="text-[9px] text-gray-400 relative z-10 mt-0.5">{fmt(cost)}</p>
+                )}
+              </button>
             );
           })}
         </div>
