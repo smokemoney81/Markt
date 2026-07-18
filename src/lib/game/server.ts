@@ -67,6 +67,7 @@ interface GameRow {
   village_index: number;
   items: ItemState[];
   item_builds: Record<string, BuildJobRow> | null;
+  item_levels: Record<string, number> | null;
   cards: Record<string, number>;
   completed_sets: string[];
   last_regen_at: string;
@@ -119,6 +120,25 @@ function buildsFromRow(raw: Record<string, BuildJobRow> | null | undefined): Rec
   return out;
 }
 
+function levelsFromRow(raw: Record<string, number> | null | undefined): Record<number, number> {
+  if (!raw) return {};
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const slot = Number(k);
+    if (!Number.isInteger(slot)) continue;
+    out[slot] = Math.max(1, Math.min(50, Number(v) || 1));
+  }
+  return out;
+}
+
+function levelsToRow(levels: Record<number, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(levels)) {
+    out[k] = Math.max(1, Math.min(50, v));
+  }
+  return out;
+}
+
 function buildsToRow(builds: Record<number, BuildJob>): Record<string, BuildJobRow> {
   const out: Record<string, BuildJobRow> = {};
   for (const [k, v] of Object.entries(builds)) {
@@ -138,6 +158,7 @@ function rowToState(row: GameRow): GameState {
     villageIndex: row.village_index,
     items: row.items,
     itemBuilds: buildsFromRow(row.item_builds),
+    itemLevels: levelsFromRow(row.item_levels),
     cards: row.cards,
     completedSets: row.completed_sets,
     lastRegenAt: ms(row.last_regen_at),
@@ -176,6 +197,7 @@ function stateToRow(state: GameState) {
     village_index: state.villageIndex,
     items: state.items,
     item_builds: buildsToRow(state.itemBuilds),
+    item_levels: levelsToRow(state.itemLevels),
     cards: state.cards,
     completed_sets: state.completedSets,
     last_regen_at: iso(state.lastRegenAt),
@@ -483,11 +505,14 @@ export function performBuild(
     throw new GameError("BEREITS_IM_BAU", "Slot wird bereits gebaut.");
   }
   const current = input.items[slot];
-  if (current === "built") {
-    throw new GameError("BEREITS_GEBAUT", "Objekt ist bereits gebaut.");
+  if (current === "damaged") {
+    throw new GameError("BESCHAEDIGT", "Gebäude ist beschädigt, reparieren erforderlich.");
   }
-  const repair = current === "damaged";
-  const cost = repair ? repairCost(input.villageIndex, slot) : itemCost(input.villageIndex, slot);
+
+  const currentLevel = input.itemLevels[slot] ?? (current === "built" ? 1 : 0);
+  const repair = false;
+  const isUpgrade = current === "built" && currentLevel < 50;
+  const cost = isUpgrade ? itemCost(input.villageIndex, slot, currentLevel) : itemCost(input.villageIndex, slot, 1);
   if (input.coins < cost) {
     throw new GameError("NICHT_GENUG_COINS", "Nicht genügend Münzen.");
   }

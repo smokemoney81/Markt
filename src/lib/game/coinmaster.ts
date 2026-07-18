@@ -117,6 +117,8 @@ export interface GameState {
   items: ItemState[];
   /** Laufende Bau-Timer: slot -> BuildJob (fehlend = kein aktiver Bau). */
   itemBuilds: Record<number, BuildJob>;
+  /** Gebäude-Level (1–50): slot -> level */
+  itemLevels: Record<number, number>;
   /** Karten-Besitz: cardId -> Anzahl */
   cards: Record<CardId, number>;
   /** Bereits eingelöste (komplette) Sets */
@@ -435,14 +437,24 @@ export function villageScale(villageIndex: number): number {
   return villageIndex + 1;
 }
 
-/** Baukosten für Objekt-Slot i (0–4) im Dorf v. */
-export function itemCost(villageIndex: number, slot: number): number {
+/** Baukosten für Objekt-Slot i (0–4) im Dorf v, mit Level-Multiplikator (bis Level 50). */
+export function itemCost(villageIndex: number, slot: number, level: number = 1): number {
   const slotFactor = [1, 1.4, 1.9, 2.5, 3.2][slot];
-  return Math.round(15_000 * slotFactor * Math.pow(villageIndex + 1, 1.6) / 1000) * 1000;
+  const baseCost = 15_000 * slotFactor * Math.pow(villageIndex + 1, 1.6);
+  // 4x teurer Multiplikator + Level-Exponentialfunktion (Level 1-50)
+  const levelMultiplier = Math.pow(1.12, level - 1); // ~2x bei Level 7, ~4x bei Level 13, ~8x bei Level 20
+  const totalCost = baseCost * 4 * levelMultiplier;
+  return Math.round(totalCost / 1000) * 1000;
 }
 
-export function repairCost(villageIndex: number, slot: number): number {
-  return Math.round((itemCost(villageIndex, slot) * REPAIR_FACTOR) / 1000) * 1000;
+/** Bonusfaktor pro Gebäude-Level (Spin-Chance, Münz-Output, etc.). */
+export function buildingBonusMultiplier(level: number): number {
+  // Level 1 = 1x, Level 10 = 1.5x, Level 50 = 2.5x (sanfte Progression)
+  return 1 + (level - 1) * 0.0333;
+}
+
+export function repairCost(villageIndex: number, slot: number, level: number = 1): number {
+  return Math.round((itemCost(villageIndex, slot, level) * REPAIR_FACTOR) / 1000) * 1000;
 }
 
 export function chestCost(chest: Chest, villageIndex: number): number {
@@ -629,6 +641,7 @@ export function newGame(): GameState {
     villageIndex: 0,
     items: ["none", "none", "none", "none", "none"],
     itemBuilds: {},
+    itemLevels: {},
     cards: {},
     completedSets: [],
     lastRegenAt: now,
@@ -742,6 +755,7 @@ export interface BuildProgressResult {
 export function applyBuildProgress(state: GameState, now: number): BuildProgressResult {
   const items = [...state.items];
   const itemBuilds: Record<number, BuildJob> = { ...state.itemBuilds };
+  const itemLevels: Record<number, number> = { ...state.itemLevels };
   const completedSlots: number[] = [];
   let stars = state.stars;
 
@@ -750,13 +764,17 @@ export function applyBuildProgress(state: GameState, now: number): BuildProgress
     const job = itemBuilds[slot];
     if (job && job.doneAt <= now) {
       items[slot] = "built";
-      if (!job.repair) stars += 1;
+      if (!job.repair) {
+        stars += 1;
+        const currentLevel = itemLevels[slot] ?? 1;
+        itemLevels[slot] = Math.min(50, currentLevel + 1);
+      }
       delete itemBuilds[slot];
       completedSlots.push(slot);
     }
   }
 
-  let result: GameState = { ...state, items, itemBuilds, stars };
+  let result: GameState = { ...state, items, itemBuilds, itemLevels, stars };
   let villageCompleted: BuildProgressResult["villageCompleted"];
 
   if (
@@ -775,6 +793,7 @@ export function applyBuildProgress(state: GameState, now: number): BuildProgress
       villageIndex: result.villageIndex + 1,
       items: ["none", "none", "none", "none", "none"],
       itemBuilds: {},
+      itemLevels: {},
       spins: result.spins + rewardSpins,
       coins: result.coins + rewardCoins,
     };
