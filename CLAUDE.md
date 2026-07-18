@@ -12,9 +12,9 @@ Alle Daten sind pro Nutzer über **Supabase Row Level Security** abgesichert.
 Zusätzlich enthält das Repo zwei eigenständige Bausteine:
 
 1. **Münz-Meister** (`/spiel`) – ein Coin-Master-Klon als kleines Casual-Spiel
-   im Dashboard. Wichtig: **reiner Client-Prototyp**, Spielstand liegt in
-   `localStorage` (`coinmaster_save_v1`). Kein Server, keine Supabase-Persistenz,
-   keine serverseitige Autorität, keine Käufe.
+   im Dashboard. **Serverautoritativ** über Supabase: Spielstand in `game_state`,
+   alle Mutationen über API-Routen mit Service-Role-Key. Monetarisiert über
+   Stripe-Shop und Rewarded Loop.
 2. **local-llm** (`local-llm/`) – ein separates Python-Tool zum lokalen
    Ausführen von LLMs (llama.cpp). Unabhängig von der Next.js-App.
 
@@ -43,29 +43,27 @@ im Dev-Server ansehen.
 ## Deployment & Live-Vorschau
 
 - **Vercel-Projekt:** `markt` (Account/Team `bait-buddyvercelapp`).
-- **Live-Vorschau (zum Prüfen von Änderungen im echten Deployment):**
-  <https://markt-git-claude-app-changes-not-vis-e5a751-bait-buddyvercelapp.vercel.app/>
-  (PR-Preview-Deployment; jeder Push auf den PR-Branch baut es neu).
-- **Nach Änderungen immer hier gegenprüfen**, dass sie tatsächlich sichtbar sind –
+- **PR-Deployments:** Jeder Push auf einen PR-Branch triggert ein Preview-Deployment
+  bei Vercel. Die URL wird in den PR-Checks angezeigt; nutze sie zum Verifizieren,
+  dass Änderungen live sichtbar sind.
+- **Nach Änderungen immer in der Preview testen**, dass sie tatsächlich sichtbar sind –
   ein grüner lokaler Build allein garantiert nicht, dass die Live-App sie zeigt.
 
-### Wichtig: Alles auf EINEM Branch halten (sonst „keine Änderungen sichtbar")
+### Wichtig: Einheitlicher Branch-Flow (sonst Änderungen „unsichtbar")
 
-Am 12.07.2026 war die Tagesarbeit auf **zwei divergierenden Branches** gelandet,
-weil Pull Requests unterschiedliche Base-Branches hatten:
+PRs müssen immer gegen **denselben Base-Branch** gehen (den, den Vercel als
+**Production Branch** deployt). Historisches Problem: Wenn PRs auf verschiedene
+Branches zielen, landen Features divergiert – das Deployment zeigt dann nur
+eine Seite, und Änderungen wirken „unsichtbar".
 
-- `main` → serverautoritative Münz-Meister-Ökonomie (Shop, Stripe, Analytics)
-- `claude/markt-de-dashboard-j5e2sx` (Repo-Default) → Aether Grid, Neon-Theme, FAB
+**Regeln:**
 
-Kein Branch enthielt alles → das Deployment zeigte immer nur die Hälfte, und
-Änderungen wirkten „unsichtbar". **Regeln daraus:**
-
-1. PRs immer gegen **denselben** Base-Branch öffnen (den Branch, den Vercel als
-   **Production Branch** deployt). Nicht mal gegen `main`, mal gegen den Default.
-2. Vor dem Verkünden „fertig" sicherstellen, dass die **vereinte** Historie auf
-   dem von Vercel deployten Production-Branch liegt.
-3. Bei Divergenz: Branches zusammenführen und mit `npm run build` + Live-Vorschau
-   verifizieren, dass **alle** Routen gemeinsam da sind.
+1. PRs **immer** gegen den Production-Branch öffnen (nicht wechselweise `main`
+   und einen Feature-Branch).
+2. Vor „fertig" sicherstellen: die **vereinte** Historie liegt auf dem
+   Production-Branch bei Vercel.
+3. Falls Feature-Branches divergieren: zusammenführen und mit `npm run build` +
+   Preview-Deployment verifizieren, dass **alle** Seiten/Routen zusammen da sind.
 
 ## Projektstruktur
 
@@ -103,6 +101,8 @@ supabase/migrations/0003_shop.sql   # Monetarisierung (game_reward_log, game_pur
 supabase/migrations/0004_analytics.sql  # KPI-Aggregat-Funktion game_analytics()
 supabase/migrations/0005_streak.sql # Tagesbonus-Streak (Spalte game_state.daily_streak)
 supabase/migrations/0006_build_time.sql # Bauzeit-Mechanik (Spalte game_state.item_builds)
+supabase/migrations/0007_phases_5_16.sql # Social/Season/VIP/Progression (Clans, Bestenlisten, …)
+supabase/migrations/0008_rls_social.sql # RLS + SELECT-Policies für die 0007-Tabellen
 public/                             # PWA-Manifest, Icons, Service Worker
 middleware.ts                       # Supabase Session-Refresh
 local-llm/                          # separates Python-LLM-Tool
@@ -125,8 +125,9 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
   Änderungen an der Ökonomie **immer hier**, nicht in der UI und nicht dupliziert
   im Server-Code – `server.ts` nutzt genau diese pure functions.
 - **UI:** `src/components/game/CoinMasterGame.tsx` (Client-Component) ist ein
-  **dünner Renderer**: kein `localStorage` mehr, jede Aktion läuft über die
-  Server-Routen (`src/lib/game/api.ts`), der Zustand kommt autoritativ zurück.
+  **dünner Renderer**: Jede Aktion läuft über die Server-Routen
+  (`src/lib/game/api.ts`), der Zustand kommt autoritativ von Supabase zurück.
+  Kein lokales `localStorage` für Spielmechanik.
 
 ### Serverautoritative Ökonomie (F2P-Fundament)
 
@@ -184,10 +185,10 @@ RLS-Policies. Nie eine Tabelle ohne RLS anlegen.
 Die Konzept-/Roadmap-Dateien (Unity-Client + Node.js/Express + PostgreSQL +
 Firebase Auth + serverseitiges Anti-Cheat + IAP) beschreiben eine **andere,
 größere Zielarchitektur**, die in **diesem** Repo **nicht** existiert. Der
-tatsächliche Stack ist Next.js + Supabase; das Spiel ist ein Client-Prototyp.
-Wenn du an der Roadmap arbeitest, kläre zuerst, ob eine Funktion im echten
-(Next.js/Supabase-)Stack umgesetzt werden soll – nicht blind gegen die
-Unity/Node-Doku bauen.
+**tatsächliche Stack** ist **Next.js 14 + Supabase**, und das Spiel ist bereits
+**serverautoritativ** implementiert (nicht Client-Prototyp). Wenn du an der
+Roadmap arbeitest, kläre zuerst, ob eine Funktion im echten (Next.js/Supabase-)
+Stack umgesetzt werden soll – nicht blind gegen die Unity/Node-Doku bauen.
 
 ## Konventionen & Guardrails
 
